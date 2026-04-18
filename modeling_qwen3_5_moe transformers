@@ -68,6 +68,7 @@ logger = logging.get_logger(__name__)
 
 
 class Qwen3_5MoeVisionRotaryEmbedding(nn.Module):
+    # 只负责生成旋转的“相位”基础（$\cos$ 和 $\sin$），而不是执行最终的向量旋转，具体的 RoPE 旋转计算是在apply_rotary_pos_emb 函数里进行的。
     inv_freq: torch.Tensor  # 显式声明，解决静态检查工具对 buffer 的报错
 
     def __init__(self, dim: int, theta: float = 10000.0) -> None:
