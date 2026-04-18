@@ -350,125 +350,171 @@ def l2norm(x: torch.FloatTensor, dim: int = -1, eps: float = 1e-6):
 
 
 def torch_chunk_gated_delta_rule(
-    query,
-    key,
-    value,
-    g,
-    beta,
-    chunk_size=64,
-    initial_state=None,
-    output_final_state=False,
-    use_qk_l2norm_in_kernel=False,
+    query,                   # 查询向量 (Query)
+    key,                     # 键向量 (Key)
+    value,                   # 值向量 (Value)
+    g,                       # 门控/衰减向量 (Gating/Decay)
+    beta,                    # 更新步长/系数 (Delta rule step size)
+    chunk_size=64,           # 分块大小
+    initial_state=None,      # 初始循环状态 (Hidden State)
+    output_final_state=False,# 是否输出最终状态
+    use_qk_l2norm_in_kernel=False, # 是否在核函数中使用 QK L2 归一化
 ):
-    initial_dtype = query.dtype
+    initial_dtype = query.dtype  # 记录输入的原始数据类型
     if use_qk_l2norm_in_kernel:
-        query = l2norm(query, dim=-1, eps=1e-6)
-        key = l2norm(key, dim=-1, eps=1e-6)
+        query = l2norm(query, dim=-1, eps=1e-6) # 对 query 进行 L2 归一化
+        key = l2norm(key, dim=-1, eps=1e-6)   # 对 key 进行 L2 归一化
+    
+    # 调整维度顺序为 (Batch, Head, Seq, Dim)，确保内存连续，并转为 float32
+    # 这种写法等同于：
+    # query = query.transpose(1, 2).contiguous().to(torch.float32)
+    # key = key.transpose(1, 2).contiguous().to(torch.float32)
+    # ...以此类推
     query, key, value, beta, g = [
         x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
     ]
 
-    batch_size, num_heads, sequence_length, k_head_dim = key.shape
-    v_head_dim = value.shape[-1]
+    batch_size, num_heads, sequence_length, k_head_dim = key.shape # 获取各个维度的尺寸
+    v_head_dim = value.shape[-1] # 获取 Value 向量的维度尺寸
+    
+    # 计算填充长度，确保序列长度能被 chunk_size 整除
     pad_size = (chunk_size - sequence_length % chunk_size) % chunk_size
-    query = F.pad(query, (0, 0, 0, pad_size))
-    key = F.pad(key, (0, 0, 0, pad_size))
-    value = F.pad(value, (0, 0, 0, pad_size))
-    beta = F.pad(beta, (0, pad_size))
-    g = F.pad(g, (0, pad_size))
-    total_sequence_length = sequence_length + pad_size
-    scale = 1 / (query.shape[-1] ** 0.5)
-    query = query * scale
+    query = F.pad(query, (0, 0, 0, pad_size)) # 在序列维度填充 query
+    key = F.pad(key, (0, 0, 0, pad_size))     # 在序列维度填充 key
+    value = F.pad(value, (0, 0, 0, pad_size)) # 在序列维度填充 value
+    beta = F.pad(beta, (0, pad_size))         # 在序列维度填充 beta
+    g = F.pad(g, (0, pad_size))               # 在序列维度填充 g
+    
+    total_sequence_length = sequence_length + pad_size # 计算填充后的总长度
+    scale = 1 / (query.shape[-1] ** 0.5) # 计算缩放因子 (1/sqrt(dk))，在 Python 中，** 是幂运算，0.5 次方等同于开平方根
+    query = query * scale # 对 query 应用缩放
 
-    v_beta = value * beta.unsqueeze(-1)
-    k_beta = key * beta.unsqueeze(-1)
-    # reshape to chunks
+    v_beta = value * beta.unsqueeze(-1) # 计算加权后的值向量 (v * beta)
+    k_beta = key * beta.unsqueeze(-1)   # 计算加权后的键向量 (k * beta)
+    
+    # 将所有张量重新整理为分块格式 (Batch, Head, Chunks, Chunk_Size, Dim)
     query, key, value, k_beta, v_beta = [
         x.reshape(x.shape[0], x.shape[1], -1, chunk_size, x.shape[-1]) for x in (query, key, value, k_beta, v_beta)
     ]
-    g = g.reshape(g.shape[0], g.shape[1], -1, chunk_size)
+    g = g.reshape(g.shape[0], g.shape[1], -1, chunk_size) # 重新整理 g 的形状
+    
+    # 创建上三角掩码，用于后续操作
     mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=0)
 
-    # chunk decay
-    g = g.cumsum(dim=-1)
+    # 计算块内衰减
+    g = g.cumsum(dim=-1) # 对 g 进行累计求和，用于计算衰减指数
+    # 计算衰减矩阵：exp(g_i - g_j)，并应用下三角掩码
     decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
+    
+    # 计算初始的注意力矩阵（Delta Rule 更新部分），并掩盖上三角
     attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
+    
+    # 循环更新注意力矩阵，解决 Delta Rule 的递归依赖性
     for i in range(1, chunk_size):
-        row = attn[..., i, :i].clone()
-        sub = attn[..., :i, :i].clone()
-        attn[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
-    attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
-    value = attn @ v_beta
-    k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
+        row = attn[..., i, :i].clone() # 获取当前行
+        sub = attn[..., :i, :i].clone() # 获取之前的子矩阵
+            attn[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2) # 矩阵级更新
+        
+    attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device) # 加上单位矩阵
+    value = attn @ v_beta # 通过更新后的注意力矩阵变换 v_beta
+    k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1)) # 计算带累积衰减的键向量
+    
+    # 初始化或获取循环隐藏状态矩阵 (Batch, Head, K_Dim, V_Dim)
     last_recurrent_state = (
         torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
         if initial_state is None
         else initial_state.to(value)
     )
-    core_attn_out = torch.zeros_like(value)
+    core_attn_out = torch.zeros_like(value) # 初始化输出张量
+    # 创建严格上三角掩码
     mask = torch.triu(torch.ones(chunk_size, chunk_size, dtype=torch.bool, device=query.device), diagonal=1)
 
-    # for each chunk
+    # 遍历每一个分块
     for i in range(0, total_sequence_length // chunk_size):
-        q_i, k_i, v_i = query[:, :, i], key[:, :, i], value[:, :, i]
-        attn = q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]
-        v_prime = (k_cumdecay[:, :, i]) @ last_recurrent_state
-        v_new = v_i - v_prime
+        q_i, k_i, v_i = query[:, :, i], key[:, :, i], value[:, :, i] # 获取当前块的 q, k, v
+        attn = q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i] # 计算当前块内的注意力贡献
+        v_prime = (k_cumdecay[:, :, i]) @ last_recurrent_state # 计算历史状态对当前块的影响
+        v_new = v_i - v_prime # 从当前值中减去历史预测（Delta Rule 核心）
+        
+        # 计算块间贡献：通过当前隐藏状态变换 query
         attn_inter = (q_i * g[:, :, i, :, None].exp()) @ last_recurrent_state
-        core_attn_out[:, :, i] = attn_inter + attn @ v_new
+        core_attn_out[:, :, i] = attn_inter + attn @ v_new # 合并块内和块间结果
+        
+        # 更新隐藏状态：应用当前块的衰减并加上新的 K-V 对应关系
         last_recurrent_state = (
             last_recurrent_state * g[:, :, i, -1, None, None].exp()
             + (k_i * (g[:, :, i, -1, None] - g[:, :, i]).exp()[..., None]).transpose(-1, -2) @ v_new
         )
 
     if not output_final_state:
-        last_recurrent_state = None
+        last_recurrent_state = None # 如果不需要，清除最终状态
+        
+    # 将分块后的输出重新展平回原始序列长度
     core_attn_out = core_attn_out.reshape(core_attn_out.shape[0], core_attn_out.shape[1], -1, core_attn_out.shape[-1])
-    core_attn_out = core_attn_out[:, :, :sequence_length]
-    core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
-    return core_attn_out, last_recurrent_state
+    core_attn_out = core_attn_out[:, :, :sequence_length] # 裁剪掉填充的部分
+    core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype) # 恢复维度顺序和原始精度
+    
+    return core_attn_out, last_recurrent_state # 返回结果和最终状态
 
 
 def torch_recurrent_gated_delta_rule(
     query, key, value, g, beta, initial_state, output_final_state, use_qk_l2norm_in_kernel=False
 ):
-    initial_dtype = query.dtype
+    initial_dtype = query.dtype # 记录输入的原始数据类型
     if use_qk_l2norm_in_kernel:
-        query = l2norm(query, dim=-1, eps=1e-6)
-        key = l2norm(key, dim=-1, eps=1e-6)
+        query = l2norm(query, dim=-1, eps=1e-6) # 对 query 进行 L2 归一化
+        key = l2norm(key, dim=-1, eps=1e-6)   # 对 key 进行 L2 归一化
+        
+    # 调整维度顺序为 (Batch, Head, Seq, Dim)，确保内存连续，并转为 float32 提高计算精度
     query, key, value, beta, g = [
         x.transpose(1, 2).contiguous().to(torch.float32) for x in (query, key, value, beta, g)
     ]
 
-    batch_size, num_heads, sequence_length, k_head_dim = key.shape
-    v_head_dim = value.shape[-1]
-    scale = 1 / (query.shape[-1] ** 0.5)
-    query = query * scale
+    batch_size, num_heads, sequence_length, k_head_dim = key.shape # 获取序列和维度的基本尺寸
+    v_head_dim = value.shape[-1] # 获取 Value 向量的维度尺寸
+    scale = 1 / (query.shape[-1] ** 0.5) # 计算注意力缩放因子 (1/sqrt(dk))
+    query = query * scale # 对 query 应用缩放
 
+    # 在设备上初始化输出张量，形状为 (Batch, Head, Seq, V_Dim)
     core_attn_out = torch.zeros(batch_size, num_heads, sequence_length, v_head_dim).to(value)
+    
+    # 初始化循环隐藏状态（记忆矩阵），形状为 (Batch, Head, K_Dim, V_Dim)
     last_recurrent_state = (
         torch.zeros(batch_size, num_heads, k_head_dim, v_head_dim).to(value)
         if initial_state is None
         else initial_state.to(value)
     )
 
+    # 开始逐时间步进行循环计算
     for i in range(sequence_length):
-        q_t = query[:, :, i]
-        k_t = key[:, :, i]
-        v_t = value[:, :, i]
-        g_t = g[:, :, i].exp().unsqueeze(-1).unsqueeze(-1)
-        beta_t = beta[:, :, i].unsqueeze(-1)
+        q_t = query[:, :, i] # 获取当前时间步的 query
+        k_t = key[:, :, i]   # 获取当前时间步的 key
+        v_t = value[:, :, i] # 获取当前时间步的 value
+        g_t = g[:, :, i].exp().unsqueeze(-1).unsqueeze(-1) # 计算当前步的衰减门控 (exp(g))
+        beta_t = beta[:, :, i].unsqueeze(-1) # 获取当前步的更新步长 beta
 
+        # 1. 应用门控衰减：对隐藏状态矩阵进行指数级遗忘
         last_recurrent_state = last_recurrent_state * g_t
+        
+        # 2. 读取旧记忆：计算当前 key 在旧记忆中的输出 (k_t @ Matrix)
         kv_mem = (last_recurrent_state * k_t.unsqueeze(-1)).sum(dim=-2)
+        
+        # 3. 计算误差 (Delta)：实际值与记忆预测值之间的差值，并乘以学习率 beta
         delta = (v_t - kv_mem) * beta_t
+        
+        # 4. 更新记忆：将当前的键值对（带误差修正）以外积形式累加进记忆矩阵
         last_recurrent_state = last_recurrent_state + k_t.unsqueeze(-1) * delta.unsqueeze(-2)
+        
+        # 5. 生成当前输出：利用更新后的记忆矩阵响应当前 query
         core_attn_out[:, :, i] = (last_recurrent_state * q_t.unsqueeze(-1)).sum(dim=-2)
 
     if not output_final_state:
-        last_recurrent_state = None
+        last_recurrent_state = None # 如果不需要，清除最终隐藏状态
+        
+    # 将输出维度恢复为原始格式 (Batch, Seq, Head, Dim) 并转回原始精度
     core_attn_out = core_attn_out.transpose(1, 2).contiguous().to(initial_dtype)
-    return core_attn_out, last_recurrent_state
+    
+    return core_attn_out, last_recurrent_state # 返回计算结果和最终状态
 
 
 class Qwen3_5MoeGatedDeltaNet(nn.Module):
