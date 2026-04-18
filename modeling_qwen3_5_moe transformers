@@ -256,42 +256,96 @@ class Qwen3_5MoeRMSNormGated(nn.Module):
 
 def apply_mask_to_padding_states(hidden_states, attention_mask):
     """
-    Tunes out the hidden states for padding tokens, see https://github.com/state-spaces/mamba/issues/66
+    针对填充标记调整隐藏状态，参考 https://github.com/state-spaces/mamba/issues/66
     """
-    # NOTE: attention mask is a 2D boolean tensor
+    # 检查注意力掩码是否存在，且 batch_size 和 sequence_length 均大于 1
+    # 这样可以避免在处理单个 token 或单条数据时进行不必要的计算
     if attention_mask is not None and attention_mask.shape[1] > 1 and attention_mask.shape[0] > 1:
+        
+        # 记录原始数据类型（如 float16 或 bfloat16），确保计算后精度一致
         dtype = hidden_states.dtype
+        
+        # 将 attention_mask 扩展到与 hidden_states 相同的维度（Batch, Seq, 1）
+        # hidden_states.shape = [Batch, Seq_len, Hidden_dim]。
+        # attention_mask.shape = [Batch, Seq_len]
+        # 执行逐元素乘法，将 mask 为 0（填充位）对应的 hidden_states 置为 0
         hidden_states = (hidden_states * attention_mask[:, :, None]).to(dtype)
 
+    # 返回处理后的隐藏状态
     return hidden_states
 
+        ```
+        from transformers import AutoTokenizer
+        
+        tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-35B-A3B")
+        texts = ["你好", "这是一个比较长的句子"]
+        
+        # padding=True 会自动补齐长度，并生成对应的 attention_mask
+        inputs = tokenizer(texts, padding=True, return_tensors="pt")
+        
+        print(inputs["attention_mask"])
+        # 输出示例:
+        # tensor([[1, 1, 0, 0, 0],  <-- 短句子后面补了0
+        #         [1, 1, 1, 1, 1]]) <-- 长句子全是1
+        ```
 
+
+# 检查以下四个核心算子是否全部已定义且不为 None
 is_fast_path_available = all(
-    (causal_conv1d_fn, causal_conv1d_update, chunk_gated_delta_rule, fused_recurrent_gated_delta_rule)
+    (
+        causal_conv1d_fn,               # 因果一维卷积函数（Mamba 的核心组件）
+        causal_conv1d_update,           # 用于推理（Generation）模式的卷积更新函数
+        chunk_gated_delta_rule,         # 分块门控 Delta 规则算子
+        fused_recurrent_gated_delta_rule # 融合递归门控 Delta 规则算子
+    )
 )
 
 
 def torch_causal_conv1d_update(
-    hidden_states,
-    conv_state,
-    weight,
-    bias=None,
-    activation=None,
+    hidden_states,   # 输入张量，形状通常为 (B, D, L)
+    conv_state,      # 卷积状态缓存，形状为 (B, D, K-1)，K 是卷积核大小
+    weight,          # 卷积核权重，形状为 (D, K)
+    bias=None,       # 偏置项
+    activation=None, # 激活函数（代码中硬编码为了 SiLU）
 ):
-    _, hidden_size, seq_len = hidden_states.shape
-    state_len = conv_state.shape[-1]
+    # 获取隐藏层维度和当前输入序列长度
+    _, hidden_size, seq_len = hidden_states.shape 
+    # 获取状态缓存的长度（通常是 kernel_size - 1）
+    state_len = conv_state.shape[-1] 
 
+    # 将旧的状态缓存与新的输入在时间维度（末尾）进行拼接
+    # .to(weight.dtype) 确保数据类型与权重一致（如 FP16 或 BF16）
     hidden_states_new = torch.cat([conv_state, hidden_states], dim=-1).to(weight.dtype)
+
+    # 这里的 .copy_ 是原地操作，更新 conv_state 供下一个时间步使用
+    # 取拼接后序列的最后 state_len 个元素作为新的状态
+    # -state_len:：从序列（最后一维）的 倒数第 state_len 个元素 开始，一直取到 最后
     conv_state.copy_(hidden_states_new[:, :, -state_len:])
+
+    # 使用 F.conv1d 进行深度卷积（Depthwise Convolution）
+    # weight.unsqueeze(1) 将权重形状从 (D, K) 变为 (D, 1, K) 以符合 conv1d 的要求
+    # groups=hidden_size 表示每一层（Channel）独立进行卷积运算
     out = F.conv1d(hidden_states_new, weight.unsqueeze(1), bias, padding=0, groups=hidden_size)
+
+    # 取卷积结果的最后 seq_len 部分，并应用 SiLU (Swish) 激活函数
     out = F.silu(out[:, :, -seq_len:])
+
+    # 将输出转回输入原始的数据类型（例如从 FP16 转回 FP32，视环境而定）
     out = out.to(hidden_states.dtype)
+    
     return out
 
 
 def l2norm(x: torch.FloatTensor, dim: int = -1, eps: float = 1e-6):
-    """This function is intended to align with the l2norm implementation in the FLA library."""
+    """此函数旨在与 FLA (Flash Linear Attention) 库中的 l2norm 实现保持一致。"""
+    
+    # 1. 计算输入 x 的平方：(x * x)
+    # 2. 在指定维度上求和：.sum(dim=dim, keepdim=True)
+    # 3. 加上 eps 防止除以零导致的数值不稳定
+    # 4. torch.rsqrt 计算“平方根的倒数”：1 / sqrt(...)
     inv_norm = torch.rsqrt((x * x).sum(dim=dim, keepdim=True) + eps)
+    
+    # 将原始输入乘以这个倒数，等同于 x / ||x||_2
     return x * inv_norm
 
 
