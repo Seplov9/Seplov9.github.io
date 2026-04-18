@@ -175,7 +175,7 @@ class Qwen3_5MoeTextRotaryEmbedding(nn.Module):
             freqs = self.apply_interleaved_mrope(freqs, self.mrope_section)
             
             # 拼接 freqs 得到完整的旋转矩阵 (cos/sin 查表用)，对应公式中的 [f, f]
-            # emb.shape = (3, bs, seq, dim/2*2)
+            # emb.shape = (bs, seq, dim/2*2)
             emb = torch.cat((freqs, freqs), dim=-1)
             
             # 计算 cos 和 sin 值，并应用缩放因子
@@ -191,10 +191,24 @@ class Qwen3_5MoeTextRotaryEmbedding(nn.Module):
 
     def apply_interleaved_mrope(self, freqs, mrope_section):
         """将 3D (T, H, W) 频率交错重组"""
+        """Apply interleaved MRoPE to 3D rotary embeddings.
+        Reorganizes frequency layout from chunked [TTT...HHH...WWW] to
+        interleaved [THWTHWTHW...TT], preserving frequency continuity.
+        args:
+            x: (3, bs, seq_len, head_dim // 2)
+            mrope_section: (3,)
+        returns:
+            x_t: (bs, seq_len, head_dim // 2)
+        """
         # 预设结果为时间维度 (T) 的频率
+        # freqs_t.shape = (bs, seq, dim/2)
         freqs_t = freqs[0]  
         
         # 遍历高度 (H) 和宽度 (W) 维度，进行交错插入
+        # 如果你的元组换成 (10, 20)，那么：
+        # 第一轮：dim=1, offset=10
+        # 第二轮：dim=2, offset=20
+        # 发现规律了吗？dim 始终是 1, 2, 3... 这样数下去的，而 offset 则是跟着你元组里的数字走。
         for dim, offset in enumerate((1, 2), start=1):  
             # 计算在该段内的总长度
             length = mrope_section[dim] * 3
