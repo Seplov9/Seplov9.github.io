@@ -223,18 +223,34 @@ class Qwen3_5MoeTextRotaryEmbedding(nn.Module):
 class Qwen3_5MoeRMSNormGated(nn.Module):
     def __init__(self, hidden_size, eps=1e-6, **kwargs):
         super().__init__()
+        # 初始化可学习的缩放参数 weight，形状为 (hidden_size,)，初始值全为 1
         self.weight = nn.Parameter(torch.ones(hidden_size))
+        # 防止分母为 0 的极小值（平滑因子）
         self.variance_epsilon = eps
 
     def forward(self, hidden_states, gate=None):
+        # 记录输入张量的原始数据类型（如 Float16 或 BFloat16）
         input_dtype = hidden_states.dtype
+        # 为了保证数值计算的稳定性，将输入转为 Float32
         hidden_states = hidden_states.to(torch.float32)
+        
+        # 计算 RMS 归一化所需的分母：对最后一个维度求平方的平均值
+        # 公式对应：RMS(x) = sqrt(1/n * sum(x^2))
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        # Norm before gate
+        
+        # 执行归一化操作：x = x / sqrt(variance + eps)
+        # torch.rsqrt 是平方根的倒数，效率更高
         hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        
+        # 将归一化后的数据转回原始类型，并应用可学习的缩放参数 self.weight
         hidden_states = self.weight * hidden_states.to(input_dtype)
+        
+        # 门控机制：将处理后的状态与经过 SiLU 激活函数的 gate 张量相乘
+        # gate 通常源自模型中专家选择（MoE）或路由逻辑的输出
         hidden_states = hidden_states * F.silu(gate.to(torch.float32))
 
+        # 最终输出转回原始数据类型
+        # 混合精度: 这个实现非常贴心，它在内部自动将计算转为 float32，计算完成后再转回输入时的精度（如 float16），这能有效防止训练过程中的梯度爆炸或数值下溢。
         return hidden_states.to(input_dtype)
 
 
