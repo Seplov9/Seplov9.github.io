@@ -68,7 +68,7 @@ logger = logging.get_logger(__name__)
 
 
 class Qwen3_5MoeVisionRotaryEmbedding(nn.Module):
-    # 只负责生成旋转的“相位”基础（$\cos$ 和 $\sin$），而不是执行最终的向量旋转，具体的 RoPE 旋转计算是在apply_rotary_pos_emb 函数里进行的。
+    # 只负责生成旋转的“相位”基础（cos 和 sin），而不是执行最终的向量旋转，具体的 RoPE 旋转计算是在apply_rotary_pos_emb 函数里进行的。
     inv_freq: torch.Tensor  # 显式声明，解决静态检查工具对 buffer 的报错
 
     def __init__(self, dim: int, theta: float = 10000.0) -> None:
@@ -95,23 +95,34 @@ class Qwen3_5MoeVisionRotaryEmbedding(nn.Module):
 
 
 class Qwen3_5MoeTextRotaryEmbedding(nn.Module):
-    inv_freq: torch.Tensor  # fix linting for `register_buffer`
+    inv_freq: torch.Tensor
 
     def __init__(self, config: Qwen3_5MoeTextConfig, device=None):
         super().__init__()
+        # 初始化最大序列长度缓存和配置
         self.max_seq_len_cached = config.max_position_embeddings
         self.original_max_seq_len = config.max_position_embeddings
-
         self.config = config
 
+        # 从配置中读取 RoPE 类型（如 default, linear, dynamic 等）
         self.rope_type = self.config.rope_parameters["rope_type"]
+        
+        # 默认使用标准的 RoPE 参数计算函数
         rope_init_fn: Callable = self.compute_default_rope_parameters
+        # 如果不是默认类型，则从全局映射表中查找对应的初始化函数（用于外推或缩放）
         if self.rope_type != "default":
             rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
+        
+        # 执行初始化函数，得到逆频率矩阵和缩放因子
         inv_freq, self.attention_scaling = rope_init_fn(self.config, device)
 
+        # 注册 inv_freq，并保留一份原始备份用于后续动态更新对比
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
+        
+        # mrope_section 定义了在隐藏维度中，Temporal(时间)、Height(高度)、Width(宽度) 各自占据的比例
+        # 默认 [11, 11, 10] 表示 32 维里分别占 11, 11, 10 维
+        # [11, 11, 10]：这是默认值。如果配置里没写，就按这个比例拆分。
         self.mrope_section = config.rope_parameters.get("mrope_section", [11, 11, 10])
 
     @staticmethod
@@ -120,67 +131,78 @@ class Qwen3_5MoeTextRotaryEmbedding(nn.Module):
         device: Optional["torch.device"] = None,
         seq_len: int | None = None,
     ) -> tuple["torch.Tensor", float]:
-        """
-        Computes the inverse frequencies according to the original RoPE implementation
-        Args:
-            config ([`~transformers.PreTrainedConfig`]):
-                The model configuration.
-            device (`torch.device`):
-                The device to use for initialization of the inverse frequencies.
-            seq_len (`int`, *optional*):
-                The current sequence length. Unused for this type of RoPE.
-        Returns:
-            Tuple of (`torch.Tensor`, `float`), containing the inverse frequencies for the RoPE embeddings and the
-            post-processing scaling factor applied to the computed cos/sin (unused in this type of RoPE).
-        """
+        # 从配置中提取旋转角度基数 (Base)
         base = config.rope_parameters["rope_theta"]
+        # 部分旋转因子：决定是全维度旋转还是部分维度旋转
         partial_rotary_factor = config.rope_parameters.get("partial_rotary_factor", 1.0)
+        # 计算每个 Head 的维度，如果配置里没有，则用总维度除以头数
         head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+        # 实际参与旋转的维度
         dim = int(head_dim * partial_rotary_factor)
 
-        attention_factor = 1.0  # Unused in this type of RoPE
+        attention_factor = 1.0  # 默认不进行注意力缩放
 
-        # Compute the inverse frequencies
+        # 标准 RoPE 逆频率公式计算
         inv_freq = 1.0 / (
             base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
         )
         return inv_freq, attention_factor
 
     @torch.no_grad()
-    @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
+    @dynamic_rope_update  # 装饰器：根据实际输入长度动态更新 inv_freq（处理长文本外推）
     def forward(self, x, position_ids):
-        # In contrast to other models, Qwen3_5Moe has different position ids for the grids
-        # So we expand the inv_freq to shape (3, ...)
+        # Qwen3.5Moe 使用 3D 位置 ID (针对 T, H, W)，所以将 position_ids 扩展到 3 个维度
+        # 通常情况下，输入的 position_ids 形状是 [Batch_Size, Seq_Len]
+        # 形状变化: (bs, seq) -> (3, bs, seq)
         if position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
+            
+        # 扩展逆频率矩阵以便进行批矩阵乘法，形状变为 (3, bs, dim/2, 1)
         inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)
-        position_ids_expanded = position_ids[:, :, None, :].float()  # shape (3, bs, 1, positions)
+        # 扩展位置 ID，形状变为 (3, bs, 1, seq)
+        position_ids_expanded = position_ids[:, :, None, :].float()
 
         device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
-        with maybe_autocast(device_type=device_type, enabled=False):  # Force float32
+        # 禁用自动混合精度，强制在 float32 下计算以保证位置信息的精确性
+        with maybe_autocast(device_type=device_type, enabled=False):
+            # 核心计算：inv_freq 与 position_ids 做矩阵乘法得到每个位置的相位
+            # inv_freq_expanded.shape = (3, bs, dim/2, 1)
+            # position_ids_expanded.shape = (3, bs, 1, seq)
+            # freqs.shape = (3, bs, seq, dim/2)
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(2, 3)
+            
+            # 调用交错 MRoPE 函数，将 T, H, W 的频率混合到一起
             freqs = self.apply_interleaved_mrope(freqs, self.mrope_section)
+            
+            # 拼接 freqs 得到完整的旋转矩阵 (cos/sin 查表用)，对应公式中的 [f, f]
+            # emb.shape = (3, bs, seq, dim/2*2)
             emb = torch.cat((freqs, freqs), dim=-1)
+            
+            # 计算 cos 和 sin 值，并应用缩放因子
+            # emb.cos()：计算每个角度的余弦值
+            # emb.sin()：计算每个角度的正弦值
+            # self.attention_scaling: 通常用于处理长文本外推，当序列长度（seq_len）变得非常大时，点积注意力（Dot-product Attention）的分数可能会变得非常大，导致 Softmax 饱和。
+            # 通过给 cos 和 sin 乘以一个缩放因子（比如来自线性内插或 YaRN 等方案的系数），可以减小旋转的“步长”或调整注意力的分布，从而让模型在处理比训练时更长的文本时，依然能保持稳定的注意力。
             cos = emb.cos() * self.attention_scaling
             sin = emb.sin() * self.attention_scaling
 
+        # 将结果转回输入数据的数据类型（如 bfloat16）
         return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
 
     def apply_interleaved_mrope(self, freqs, mrope_section):
-        """Apply interleaved MRoPE to 3D rotary embeddings.
-        Reorganizes frequency layout from chunked [TTT...HHH...WWW] to
-        interleaved [THWTHWTHW...TT], preserving frequency continuity.
-        args:
-            x: (3, bs, seq_len, head_dim // 2)
-            mrope_section: (3,)
-        returns:
-            x_t: (bs, seq_len, head_dim // 2)
-        """
-        freqs_t = freqs[0]  # just overwrite the first dimension T
-        for dim, offset in enumerate((1, 2), start=1):  # H, W
+        """将 3D (T, H, W) 频率交错重组"""
+        # 预设结果为时间维度 (T) 的频率
+        freqs_t = freqs[0]  
+        
+        # 遍历高度 (H) 和宽度 (W) 维度，进行交错插入
+        for dim, offset in enumerate((1, 2), start=1):  
+            # 计算在该段内的总长度
             length = mrope_section[dim] * 3
+            # 使用切片：从 offset 开始，步长为 3 (实现 THW 交错排列)
             idx = slice(offset, length, 3)
+            # 将 H 或 W 对应的频率值填入指定位置
             freqs_t[..., idx] = freqs[dim, ..., idx]
+            
         return freqs_t
 
 
