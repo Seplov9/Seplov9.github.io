@@ -789,25 +789,41 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 
 def eager_attention_forward(
-    module: nn.Module,
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    attention_mask: torch.Tensor | None,
-    scaling: float,
-    dropout: float = 0.0,
+    module: nn.Module,              # 传入的注意力模块实例，用于获取配置参数（如 head 数量）
+    query: torch.Tensor,           # 查询向量 [batch, num_heads, seq_len, head_dim]
+    key: torch.Tensor,             # 键向量 [batch, num_kv_heads, seq_len, head_dim]
+    value: torch.Tensor,           # 值向量 [batch, num_kv_heads, seq_len, head_dim]
+    attention_mask: torch.Tensor | None, # 掩码，用于遮蔽无效位置（如 Padding 或 Causal 掩码）
+    scaling: float,                # 缩放因子，通常为 1 / sqrt(head_dim)
+    dropout: float = 0.0,          # Dropout 概率
     **kwargs: Unpack[TransformersKwargs],
 ):
+    # 1. 针对 Grouped Query Attention (GQA)，将 Key 重复扩展以匹配 Query 的 Head 数量
     key_states = repeat_kv(key, module.num_key_value_groups)
+    # 2. 同理，将 Value 重复扩展
     value_states = repeat_kv(value, module.num_key_value_groups)
 
+    # 3. 核心计算：Q 乘以 K 的转置，计算注意力分数（矩阵乘法）
+    # 结果维度: [batch, num_heads, seq_len, seq_len]
     attn_weights = torch.matmul(query, key_states.transpose(2, 3)) * scaling
+
+    # 4. 如果有掩码（如处理变长输入或因果遮蔽），将其加到分数上（通常掩码处为极负数）
     if attention_mask is not None:
         attn_weights = attn_weights + attention_mask
 
+    # 5. 在最后一个维度做 Softmax，使权重归一化到 [0, 1] 且和为 1
+    # 强制转为 float32 计算以保证数值稳定性，最后转回 Query 的原始精度
     attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query.dtype)
+
+    # 6. 对注意力权重进行 Dropout 随机失活，防止过拟合
     attn_weights = nn.functional.dropout(attn_weights, p=dropout, training=module.training)
+
+    # 7. 将权重作用于 Value 向量上，得到最终的上下文表示
+    # 结果维度: [batch, num_heads, seq_len, head_dim]
     attn_output = torch.matmul(attn_weights, value_states)
+
+    # 8. 调整维度顺序，将多头拼接到一起，并确保内存连续（以便后续 View/Reshape 操作）
+    # 结果维度: [batch, seq_len, num_heads, head_dim]
     attn_output = attn_output.transpose(1, 2).contiguous()
 
     return attn_output, attn_weights
