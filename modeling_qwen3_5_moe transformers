@@ -1142,40 +1142,52 @@ class Qwen3_5MoeRMSNorm(nn.Module):
 class Qwen3_5MoeDecoderLayer(GradientCheckpointingLayer):
     def __init__(self, config: Qwen3_5MoeTextConfig, layer_idx: int):
         super().__init__()
-        self.hidden_size = config.hidden_size
-        self.layer_type = config.layer_types[layer_idx]
+        self.hidden_size = config.hidden_size  # 隐藏层维度，记为 d_model
+        self.layer_type = config.layer_types[layer_idx] # 获取当前层的类型
+        
+        # --- 令牌混合器 (Token Mixer) 初始化 ---
         if self.layer_type == "linear_attention":
+            # 线性注意力机制，通常用于处理长序列，计算复杂度为 O(N)
             self.linear_attn = Qwen3_5MoeGatedDeltaNet(config, layer_idx)
         elif self.layer_type == "full_attention":
+            # 标准的 Softmax 注意力机制，计算复杂度为 O(N^2)
             self.self_attn = Qwen3_5MoeAttention(config, layer_idx)
+        
+        # --- 专家混合模块 (MoE Block) ---
+        # 代替传统的 MLP，包含 Router 和多个 Expert
         self.mlp = Qwen3_5MoeSparseMoeBlock(config)
+        
+        # --- 层归一化 (RMSNorm) ---
         self.input_layernorm = Qwen3_5MoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = Qwen3_5MoeRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        position_embeddings: tuple[torch.Tensor, torch.Tensor],
-        attention_mask: torch.Tensor | None = None,
-        position_ids: torch.LongTensor | None = None,
-        past_key_values: Cache | None = None,
-        **kwargs: Unpack[FlashAttentionKwargs],
+        hidden_states: torch.Tensor,             # 输入张量: [batch, seq_len, d_model]
+        position_embeddings: tuple[torch.Tensor, torch.Tensor], # RoPE 旋转位置编码所需的 cos/sin 缓存
+        attention_mask: torch.Tensor | None = None, # 遮罩: [batch, 1, seq_len, seq_len]
+        position_ids: torch.LongTensor | None = None,   # 位置索引: [batch, seq_len]
+        past_key_values: Cache | None = None,   # KV 缓存，用于自回归生成
+        **kwargs: Unpack[FlashAttentionKwargs], # 其他加速计算相关的参数
     ) -> torch.FloatTensor:
-        residual = hidden_states
+        # 1. 残差连接备份
+        residual = hidden_states  # 维度: [batch, seq_len, d_model]
 
+        # 2. 预归一化 (Pre-Norm)
         hidden_states = self.input_layernorm(hidden_states)
 
-        # Token Mixer
+        # 3. 令牌混合阶段 (Token Mixing Stage)
+        # 根据配置进入不同的注意力分支
         if self.layer_type == "linear_attention":
             hidden_states = self.linear_attn(
-                hidden_states=hidden_states,
+                hidden_states=hidden_states, # [batch, seq_len, d_model]
                 cache_params=past_key_values,
                 attention_mask=attention_mask,
             )
         elif self.layer_type == "full_attention":
-            # Self Attention
+            # 返回值为 (output, weights)，这里只取 output
             hidden_states, _ = self.self_attn(
-                hidden_states=hidden_states,
+                hidden_states=hidden_states, # [batch, seq_len, d_model]
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 past_key_values=past_key_values,
@@ -1183,18 +1195,26 @@ class Qwen3_5MoeDecoderLayer(GradientCheckpointingLayer):
                 **kwargs,
             )
 
+        # 4. 第一个残差加法 (Add)
+        # [batch, seq_len, d_model] + [batch, seq_len, d_model]
         hidden_states = residual + hidden_states
 
-        # Fully Connected
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
+        # 5. 全连接/专家混合阶段 (FFN/MoE Stage)
+        residual = hidden_states # 更新残差备份
+        hidden_states = self.post_attention_layernorm(hidden_states) # 归一化
+        
+        # 进入 MoE 模块。内部会进行路由(Routing)并将 token 分发给不同的专家
         hidden_states = self.mlp(hidden_states)
-        # For the MoE layers, we need to unpack
+        
+        # 6. 处理 MoE 的返回值
+        # MoE 模块有时会额外返回辅助损失(aux_loss)用于负载均衡，这里通过判断类型来解包
         if isinstance(hidden_states, tuple):
-            hidden_states, _ = hidden_states
+            hidden_states, _ = hidden_states # 只保留计算后的 hidden_states [batch, seq_len, d_model]
+            
+        # 7. 第二个残差加法 (Add)
         hidden_states = residual + hidden_states
 
-        return hidden_states
+        return hidden_states # 输出维度: [batch, seq_len, d_model]
 
 
 class Qwen3_5MoePreTrainedModel(PreTrainedModel):
