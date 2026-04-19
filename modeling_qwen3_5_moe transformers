@@ -789,13 +789,13 @@ class Qwen3_5MoeAttention(nn.Module):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
-        # 每个注意力头的维度，公式：$d_{head} = d_{model} / n_{heads}$
+        # 每个注意力头的维度，公式：d_{head} = d_{model} / n_{heads}
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         
         # GQA（分组查询注意力）的组数：多少个 Q 头共享一组 K/V 头
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         
-        # 缩放因子，用于注意力分数：$1 / \sqrt{d_{head}}$
+        # 缩放因子，用于注意力分数：1 / \sqrt{d_{head}}
         self.scaling = self.head_dim**-0.5
         self.attention_dropout = config.attention_dropout
         self.is_causal = True # 因果掩码，用于自回归生成
@@ -821,6 +821,85 @@ class Qwen3_5MoeAttention(nn.Module):
         # Q/K Norm：在计算点积前对 Q 和 K 进行归一化，增强数值稳定性
         self.q_norm = Qwen3_5MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)
         self.k_norm = Qwen3_5MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,              # 输入维度: [B, S, Hidden]
+        position_embeddings: tuple[torch.Tensor, torch.Tensor], # (cos, sin) 维度均为: [1, S, 1, D] 或 [B, S, 1, D]
+        attention_mask: torch.Tensor | None,      # 掩码维度: [B, 1, S, S] 或兼容广播的形状
+        past_key_values: Cache | None = None,     # 缓存对象，内部存储 KV 状态
+        **kwargs: Unpack[FlashAttentionKwargs],   # 额外参数
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        
+        # 1. 获取输入形状信息
+        input_shape = hidden_states.shape[:-1]    # [B, S]
+        # 用于 view 的目标形状: [B, S, n_heads, D]
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        # 2. 线性投影与门控拆分
+        # self.q_proj(hidden_states) 输出: [B, S, H * D * 2]
+        # .view 后形状: [B, S, H, D * 2]
+        # torch.chunk 沿最后一个维度拆分出 query 和 gate
+        query_states, gate = torch.chunk(
+            self.q_proj(hidden_states).view(*input_shape, -1, self.head_dim * 2), 
+            2, 
+            dim=-1
+        )
+        # 拆分后维度：
+        # query_states: [B, S, H, D]
+        # gate:         [B, S, H, D]
+        
+        # gate 展平，准备后续的 Element-wise product
+        gate = gate.reshape(*input_shape, -1)     # [B, S, H * D] (即 [B, S, Hidden])
+
+        # 3. 归一化 (RMSNorm) 与 转置
+        # q_norm 在 D 维度进行，transpose 后: [B, H, S, D]
+        query_states = self.q_norm(query_states.view(hidden_shape)).transpose(1, 2)
+        
+        # k_proj 输出: [B, S, G * D] -> view 后: [B, S, G, D] -> transpose 后: [B, G, S, D]
+        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        
+        # v_proj 输出: [B, S, G * D] -> view 后: [B, S, G, D] -> transpose 后: [B, G, S, D]
+        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+        # 4. 应用旋转位置编码 (RoPE)
+        # 不改变维度，依然是:
+        # query_states: [B, H, S, D]
+        # key_states:   [B, G, S, D]
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # 5. KV Cache 更新
+        # 如果是推理阶段，key_states/value_states 的 S 维度会增加（累加之前的 Token）
+        if past_key_values is not None:
+            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
+
+        # 6. 注意力核心计算 (FlashAttention / Eager)
+        # 输入: Q[B, H, S, D], K[B, G, S, D], V[B, G, S, D]
+        # 输出 attn_output 维度: [B, H, S, D]
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+            **kwargs,
+        )
+
+        # 7. 后处理与门控融合
+        # reshape 将多头拼接: [B, S, H * D] (即 [B, S, Hidden])
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        
+        # 门控激活：attn_output [B, S, Hidden] * gate [B, S, Hidden] (经过 sigmoid)
+        attn_output = attn_output * torch.sigmoid(gate)
+
+        # 8. 映射回原始维度
+        # self.o_proj 输出: [B, S, Hidden]
+        attn_output = self.o_proj(attn_output)
+        
+        return attn_output, attn_weights
 
 class Qwen3_5MoeMLP(nn.Module):
     def __init__(self, config: Qwen3_5MoeConfig, intermediate_size: int):
