@@ -699,7 +699,7 @@ class Qwen3_5MoeGatedDeltaNet(nn.Module):
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
-    # 它把最后一个维度平分成两部分。如果 $d=64$，那么 x1 包含前 32 个元素，x2 包含后 32 个元素。
+    # 它把最后一个维度平分成两部分。如果 d=64，那么 x1 包含前 32 个元素，x2 包含后 32 个元素。
     # [x_1, x_2, x_3, x_4, x_5, x_6, x_7, x_8] -> [-x_5, -x_6, -x_7, -x_8, x_1, x_2, x_3, x_4]
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
