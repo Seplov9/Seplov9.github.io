@@ -708,6 +708,11 @@ def rotate_half(x):
 
 # Adapted from transformers.models.glm.modular_glm.apply_rotary_pos_emb
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    """
+    假设输入维度：
+    q, k: [Batch, Head, Seq, Dim]  -> 例如 [2, 32, 128, 128]
+    cos, sin: [Batch, Seq, Dim]    -> 例如 [2, 128, 128]
+    """
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Removes the interleaving of cos and sin from GLM
@@ -727,21 +732,34 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
+    
+    # 1. 维度对齐：在指定的 unsqueeze_dim 插入长度为 1 的维度
+    # cos/sin 变换：[B, L, D] -> [B, 1, L, D]
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
 
-    # Keep half or full tensor for later concatenation
-    rotary_dim = cos.shape[-1]
+    # 2. 确定旋转维度：通常 rotary_dim 等于 head_dim (D)
+    rotary_dim = cos.shape[-1] # rotary_dim = 128
+    
+    # 3. 切分张量：将 Q/K 分为“参与旋转”和“不参与旋转”两部分
+    # q_rot: [B, H, L, 128] (全部参与)
+    # q_pass: [B, H, L, 0]   (如果没有剩余维度，则为空)
     q_rot, q_pass = q[..., :rotary_dim], q[..., rotary_dim:]
     k_rot, k_pass = k[..., :rotary_dim], k[..., rotary_dim:]
 
-    # Apply rotary embeddings on the first half or full tensor
+    # 4. 执行 RoPE 核心运算：
+    # (q_rot * cos) -> [B, 32, 128, 128] * [B, 1, 128, 128] (利用广播机制复制到 32 个头)
+    # rotate_half(q_rot) -> 维度不变 [B, 32, 128, 128]，仅内部元素按对交换并取负
+    # q_embed 结果: [B, 32, 128, 128]
     q_embed = (q_rot * cos) + (rotate_half(q_rot) * sin)
     k_embed = (k_rot * cos) + (rotate_half(k_rot) * sin)
 
-    # Concatenate back to full shape
+    # 5. 拼接还原：将旋转后的部分与不旋转的部分在最后一维合并
+    # q_embed: cat([B, 32, 128, 128], [B, 32, 128, 0]) -> [B, 32, 128, 128]
     q_embed = torch.cat([q_embed, q_pass], dim=-1)
     k_embed = torch.cat([k_embed, k_pass], dim=-1)
+    
+    # 返回结果：维度与输入的 q, k 完全一致
     return q_embed, k_embed
 
 
