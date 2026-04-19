@@ -520,182 +520,134 @@ def torch_recurrent_gated_delta_rule(
 class Qwen3_5MoeGatedDeltaNet(nn.Module):
     def __init__(self, config: Qwen3_5MoeConfig, layer_idx: int):
         super().__init__()
-        self.hidden_size = config.hidden_size
-        self.num_v_heads = config.linear_num_value_heads
-        self.num_k_heads = config.linear_num_key_heads
-        self.head_k_dim = config.linear_key_head_dim
-        self.head_v_dim = config.linear_value_head_dim
+        self.hidden_size = config.hidden_size  # 模型隐藏层维度 (d_model)
+        self.num_v_heads = config.linear_num_value_heads # Value 头的数量
+        self.num_k_heads = config.linear_num_key_heads   # Key 头的数量
+        self.head_k_dim = config.linear_key_head_dim     # 每个 Key 头的维度
+        self.head_v_dim = config.linear_value_head_dim   # 每个 Value 头的维度
+        
+        # 总维度计算
+        # key_dim: num_k_heads * head_k_dim
         self.key_dim = self.head_k_dim * self.num_k_heads
+        # value_dim: num_v_heads * head_v_dim
         self.value_dim = self.head_v_dim * self.num_v_heads
 
-        self.conv_kernel_size = config.linear_conv_kernel_dim
+        self.conv_kernel_size = config.linear_conv_kernel_dim # 一维卷积核大小 (通常为 4)
         self.layer_idx = layer_idx
         self.activation = config.hidden_act
-        self.act = ACT2FN[config.hidden_act]
+        self.act = ACT2FN[config.hidden_act] # 激活函数 (如 SiLU)
         self.layer_norm_epsilon = config.rms_norm_eps
 
-        # QKV
+        # 1. 卷积层设置
+        # conv_dim = Key维度 * 2 (Q和K) + Value维度
         self.conv_dim = self.key_dim * 2 + self.value_dim
         self.conv1d = nn.Conv1d(
             in_channels=self.conv_dim,
             out_channels=self.conv_dim,
             bias=False,
             kernel_size=self.conv_kernel_size,
-            groups=self.conv_dim,
+            groups=self.conv_dim, # 深度可分离卷积 (Depthwise)
             padding=self.conv_kernel_size - 1,
         )
 
-        # time step projection (discretization)
-        # instantiate once and copy inv_dt in init_weights of PretrainedModel
+        # 2. 离散化参数 (类似 SSM/Mamba)
+        # dt_bias: 时间步偏移量，控制信息遗忘速率
         self.dt_bias = nn.Parameter(torch.ones(self.num_v_heads))
-
+        # A 参数：状态转移矩阵的对数形式
         A = torch.empty(self.num_v_heads).uniform_(0, 16)
         self.A_log = nn.Parameter(torch.log(A))
 
+        # 3. 门控归一化 (Gated RMSNorm)
+        # 对输出进行 Norm 的同时与门控分支 z 进行交互
         self.norm = (
             Qwen3_5MoeRMSNormGated(self.head_v_dim, eps=self.layer_norm_epsilon)
-            if FusedRMSNormGated is None
-            else FusedRMSNormGated(
-                self.head_v_dim,
-                eps=self.layer_norm_epsilon,
-                activation=self.activation,
-                device=torch.cuda.current_device(),
-                dtype=config.dtype if config.dtype is not None else torch.get_default_dtype(),
-            )
+            if FusedRMSNormGated is None else ... 
         )
 
-        self.out_proj = nn.Linear(self.value_dim, self.hidden_size, bias=False)
+        # 4. 投影层
+        self.out_proj = nn.Linear(self.value_dim, self.hidden_size, bias=False) # 输出投影
+        self.in_proj_qkv = nn.Linear(self.hidden_size, self.conv_dim, bias=False) # 投影生成 Q, K, V
+        self.in_proj_z = nn.Linear(self.hidden_size, self.value_dim, bias=False)   # 投影生成门控信号 z
+        self.in_proj_b = nn.Linear(self.hidden_size, self.num_v_heads, bias=False) # Delta Rule 的 Beta 参数
+        self.in_proj_a = nn.Linear(self.hidden_size, self.num_v_heads, bias=False) # 控制时间步的 Alpha 参数
 
-        self.causal_conv1d_fn = causal_conv1d_fn
-        self.causal_conv1d_update = causal_conv1d_update or torch_causal_conv1d_update
-        self.chunk_gated_delta_rule = chunk_gated_delta_rule or torch_chunk_gated_delta_rule
-        self.recurrent_gated_delta_rule = fused_recurrent_gated_delta_rule or torch_recurrent_gated_delta_rule
-
-        if not is_fast_path_available:
-            logger.warning_once(
-                "The fast path is not available because one of the required library is not installed. Falling back to "
-                "torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and"
-                " https://github.com/Dao-AILab/causal-conv1d"
-            )
-
-        self.in_proj_qkv = nn.Linear(self.hidden_size, self.key_dim * 2 + self.value_dim, bias=False)
-        self.in_proj_z = nn.Linear(self.hidden_size, self.value_dim, bias=False)
-        self.in_proj_b = nn.Linear(self.hidden_size, self.num_v_heads, bias=False)
-        self.in_proj_a = nn.Linear(self.hidden_size, self.num_v_heads, bias=False)
-
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        cache_params: Cache | None = None,
-        attention_mask: torch.Tensor | None = None,
-    ):
+    def forward(self, hidden_states, cache_params=None, attention_mask=None):
+        # 处理 Padding
         hidden_states = apply_mask_to_padding_states(hidden_states, attention_mask)
-
-        # Set up dimensions for reshapes later
         batch_size, seq_len, _ = hidden_states.shape
 
-        use_precomputed_states = (
-            cache_params is not None and cache_params.has_previous_state(self.layer_idx) and seq_len == 1
-        )
+        # 检查是否是推理模式下的单 Token 生成 (使用 Cache)
+        use_precomputed_states = (cache_params is not None and ... and seq_len == 1)
 
-        # getting projected states from cache if it exists
-        if use_precomputed_states:
-            conv_state = cache_params.layers[self.layer_idx].conv_states
-            recurrent_state = cache_params.layers[self.layer_idx].recurrent_states
-
+        # 1. 输入投影
+        # mixed_qkv: [B, L, key_dim*2 + value_dim]
         mixed_qkv = self.in_proj_qkv(hidden_states)
-        mixed_qkv = mixed_qkv.transpose(1, 2)
+        mixed_qkv = mixed_qkv.transpose(1, 2) # 转置为 [B, C, L] 以适配 Conv1d
 
-        z = self.in_proj_z(hidden_states)
-        z = z.reshape(batch_size, seq_len, -1, self.head_v_dim)
+        # z (Gate): [B, L, num_v_heads, head_v_dim]
+        z = self.in_proj_z(hidden_states).reshape(batch_size, seq_len, -1, self.head_v_dim)
 
+        # b (Beta) 和 a (Alpha): [B, L, num_v_heads]
         b = self.in_proj_b(hidden_states)
         a = self.in_proj_a(hidden_states)
 
+        # 2. 因果卷积处理 (Causal Convolution)
+        # 用于增强局部特征提取，并在序列维度上建立短程依赖
         if use_precomputed_states:
-            # 2. Convolution sequence transformation
-            # NOTE: the conv state is updated in `causal_conv1d_update`
-            mixed_qkv = self.causal_conv1d_update(
-                mixed_qkv,
-                conv_state,
-                self.conv1d.weight.squeeze(1),
-                self.conv1d.bias,
-                self.activation,
-            )
+            mixed_qkv = self.causal_conv1d_update(mixed_qkv, ...) # 推理模式单步更新
         else:
-            if cache_params is not None:
-                conv_state = F.pad(mixed_qkv, (self.conv_kernel_size - mixed_qkv.shape[-1], 0))
-                conv_state = cache_params.update_conv_state(conv_state, self.layer_idx)
+            # 训练或首图模式：全局卷积
             if self.causal_conv1d_fn is not None:
-                mixed_qkv = self.causal_conv1d_fn(
-                    x=mixed_qkv,
-                    weight=self.conv1d.weight.squeeze(1),
-                    bias=self.conv1d.bias,
-                    activation=self.activation,
-                    seq_idx=None,
-                )
+                mixed_qkv = self.causal_conv1d_fn(x=mixed_qkv, ...)
             else:
                 mixed_qkv = F.silu(self.conv1d(mixed_qkv)[:, :, :seq_len])
 
-        mixed_qkv = mixed_qkv.transpose(1, 2)
-        query, key, value = torch.split(
-            mixed_qkv,
-            [
-                self.key_dim,
-                self.key_dim,
-                self.value_dim,
-            ],
-            dim=-1,
-        )
+        # 3. 拆分 Query, Key, Value
+        mixed_qkv = mixed_qkv.transpose(1, 2) # 回到 [B, L, C]
+        query, key, value = torch.split(mixed_qkv, [self.key_dim, self.key_dim, self.value_dim], dim=-1)
 
+        # 重塑维度以匹配多头机制
+        # query/key: [B, L, num_k_heads, head_k_dim]
         query = query.reshape(batch_size, seq_len, -1, self.head_k_dim)
         key = key.reshape(batch_size, seq_len, -1, self.head_k_dim)
+        # value: [B, L, num_v_heads, head_v_dim]
         value = value.reshape(batch_size, seq_len, -1, self.head_v_dim)
 
-        beta = b.sigmoid()
-        # If the model is loaded in fp16, without the .float() here, A might be -inf
+        # 4. 计算增量规则参数 (Delta Rule)
+        beta = b.sigmoid() # 控制当前输入对状态的更新幅度
+        # g (gate): 结合了 A 参数和输入 a，模拟 SSM 中的衰减/选择机制
         g = -self.A_log.float().exp() * F.softplus(a.float() + self.dt_bias)
+        
+        # 如果 QK 头数少于 V 头数 (类似 GQA)，进行广播对齐
         if self.num_v_heads // self.num_k_heads > 1:
             query = query.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
             key = key.repeat_interleave(self.num_v_heads // self.num_k_heads, dim=2)
 
+        # 5. 执行核心算法：Chunk Gated Delta Rule
+        # 这是将线性注意力和增量更新融合的 kernel
+        # 处理流程：线性注意力（矩阵乘法）+ 基于 g 和 beta 的隐藏状态更新
         if not use_precomputed_states:
+            # 块并行模式 (训练)
             core_attn_out, last_recurrent_state = self.chunk_gated_delta_rule(
-                query,
-                key,
-                value,
-                g=g,
-                beta=beta,
-                initial_state=None,
-                output_final_state=cache_params is not None,
-                use_qk_l2norm_in_kernel=True,
+                query, key, value, g=g, beta=beta, ...
             )
-
         else:
+            # 递归模式 (推理)
             core_attn_out, last_recurrent_state = self.recurrent_gated_delta_rule(
-                query,
-                key,
-                value,
-                g=g,
-                beta=beta,
-                initial_state=recurrent_state,
-                output_final_state=cache_params is not None,
-                use_qk_l2norm_in_kernel=True,
+                query, key, value, g=g, beta=beta, ...
             )
 
-        # Update cache
-        if cache_params is not None:
-            cache_params.update_recurrent_state(last_recurrent_state, self.layer_idx)
-
-        # reshape input data into 2D tensor
+        # 6. 后处理与输出
+        # 将 [B, L, H, D_v] 展平与门控 z 进行融合归一化
         core_attn_out = core_attn_out.reshape(-1, self.head_v_dim)
         z = z.reshape(-1, self.head_v_dim)
-        core_attn_out = self.norm(core_attn_out, z)
+        core_attn_out = self.norm(core_attn_out, z) # 使用门控信号 z 调整输出
+        
+        # 映射回模型维度
         core_attn_out = core_attn_out.reshape(batch_size, seq_len, -1)
-
-        output = self.out_proj(core_attn_out)
+        output = self.out_proj(core_attn_out) # [B, L, HiddenSize]
+        
         return output
-
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
@@ -829,83 +781,46 @@ def eager_attention_forward(
     return attn_output, attn_weights
 
 
-@use_kernelized_func(apply_rotary_pos_emb)
+@use_kernelized_func(apply_rotary_pos_emb) # 装饰器：优化旋转位置编码的内核执行
 class Qwen3_5MoeAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
+    """基于 Qwen 架构的 MoE 注意力模块"""
 
     def __init__(self, config: Qwen3_5MoeConfig, layer_idx: int):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
+        # 每个注意力头的维度，公式：$d_{head} = d_{model} / n_{heads}$
         self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        
+        # GQA（分组查询注意力）的组数：多少个 Q 头共享一组 K/V 头
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+        
+        # 缩放因子，用于注意力分数：$1 / \sqrt{d_{head}}$
         self.scaling = self.head_dim**-0.5
         self.attention_dropout = config.attention_dropout
-        self.is_causal = True
+        self.is_causal = True # 因果掩码，用于自回归生成
+
+        # 【关键点】q_proj 的输出维度是 2 倍，因为它包含了 Q 和 gate
+        # 维度变化: [hidden_size] -> [num_heads * head_dim * 2]
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim * 2, bias=config.attention_bias
         )
+        # K 投影：[hidden_size] -> [num_kv_heads * head_dim]
         self.k_proj = nn.Linear(
             config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
         )
+        # V 投影：[hidden_size] -> [num_kv_heads * head_dim]
         self.v_proj = nn.Linear(
             config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
         )
+        # 输出投影：将所有头拼接后的维度映射回 [hidden_size]
         self.o_proj = nn.Linear(
             config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
         )
-        self.q_norm = Qwen3_5MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)  # unlike olmo, only on the head dim!
-        self.k_norm = Qwen3_5MoeRMSNorm(
-            self.head_dim, eps=config.rms_norm_eps
-        )  # thus post q_norm does not need reshape
 
-    def forward(
-        self,
-        hidden_states: torch.Tensor,
-        position_embeddings: tuple[torch.Tensor, torch.Tensor],
-        attention_mask: torch.Tensor | None,
-        past_key_values: Cache | None = None,
-        **kwargs: Unpack[FlashAttentionKwargs],
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
-
-        query_states, gate = torch.chunk(
-            self.q_proj(hidden_states).view(*input_shape, -1, self.head_dim * 2), 2, dim=-1
-        )
-        gate = gate.reshape(*input_shape, -1)
-
-        query_states = self.q_norm(query_states.view(hidden_shape)).transpose(1, 2)
-        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        if past_key_values is not None:
-            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
-
-        attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
-            self.config._attn_implementation, eager_attention_forward
-        )
-
-        attn_output, attn_weights = attention_interface(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-            **kwargs,
-        )
-
-        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
-        attn_output = attn_output * torch.sigmoid(gate)
-
-        attn_output = self.o_proj(attn_output)
-        return attn_output, attn_weights
-
+        # Q/K Norm：在计算点积前对 Q 和 K 进行归一化，增强数值稳定性
+        self.q_norm = Qwen3_5MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.k_norm = Qwen3_5MoeRMSNorm(self.head_dim, eps=config.rms_norm_eps)
 
 class Qwen3_5MoeMLP(nn.Module):
     def __init__(self, config: Qwen3_5MoeConfig, intermediate_size: int):
