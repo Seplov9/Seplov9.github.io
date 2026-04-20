@@ -703,3 +703,215 @@ def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
     k_embed = (k * cos) + (rotate_half(k) * sin) # 维度: [B, H, L, D]
     
     return q_embed, k_embed
+
+
+@use_kernelized_func(apply_rotary_pos_emb) # 使用内核优化的旋转位置编码函数
+class Qwen3VLTextAttention(nn.Module):
+    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int):
+        super().__init__()
+        # 基础配置信息
+        self.layer_type = config.layer_types[layer_idx] if hasattr(config, "layer_types") else None
+        self.config = config
+        self.layer_idx = layer_idx
+        
+        # head_dim: 每个注意力头的维度，通常为 hidden_size // num_attention_heads
+        self.head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        
+        # num_key_value_groups: GQA 分组数，决定了多少个 Q 头共用一组 K/V 头
+        self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
+        
+        # 缩放因子：1 / sqrt(head_dim)
+        self.scaling = self.head_dim**-0.5
+        self.attention_dropout = config.attention_dropout
+        self.is_causal = True # 因果掩码（自回归）
+
+        # Q 投影层：[hidden_size, num_heads * head_dim]
+        self.q_proj = nn.Linear(
+            config.hidden_size, config.num_attention_heads * self.head_dim, bias=config.attention_bias
+        )
+        # K 投影层：[hidden_size, num_kv_heads * head_dim] (GQA 模式下输出维度较小)
+        self.k_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
+        # V 投影层：维度同 K
+        self.v_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * self.head_dim, bias=config.attention_bias
+        )
+        # O 输出投影：[num_heads * head_dim, hidden_size]
+        self.o_proj = nn.Linear(
+            config.num_attention_heads * self.head_dim, config.hidden_size, bias=config.attention_bias
+        )
+        
+        # QK Norm：在计算注意力得分前对 Q 和 K 进行归一化，有助于训练稳定性
+        # 只在 head_dim 这一维操作
+        self.q_norm = Qwen3VLTextRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+        self.k_norm = Qwen3VLTextRMSNorm(self.head_dim, eps=config.rms_norm_eps)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor, # 维度: [B, L, hidden_size]
+        position_embeddings: tuple[torch.Tensor, torch.Tensor], # (cos, sin) 维度均为 [B, L, D] 或支持广播
+        attention_mask: torch.Tensor | None, # 维度: [B, 1, L, L]
+        past_key_values: Cache | None = None, # KV 缓存对象
+        **kwargs: Unpack[FlashAttentionKwargs],
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        
+        # input_shape = [B, L]
+        input_shape = hidden_states.shape[:-1]
+        # hidden_shape = [B, L, -1, D] 用于后续把投影后的向量 split 成多头
+        hidden_shape = (*input_shape, -1, self.head_dim)
+
+        # 1. 投影并重塑维度
+        # query_states 变换路径: 
+        # [B, L, hidden_size] -> (q_proj) -> [B, L, H*D] -> (view) -> [B, L, H, D] 
+        # -> (q_norm) -> (transpose) -> [B, H, L, D]
+        query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        
+        # key_states 变换路径: 
+        # [B, L, hidden_size] -> (k_proj) -> [B, L, G*D] -> (view) -> [B, L, G, D] 
+        # -> (k_norm) -> (transpose) -> [B, G, L, D]
+        key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+        
+        # value_states 变换路径: 
+        # [B, L, hidden_size] -> (v_proj) -> [B, L, G*D] -> (view) -> [B, L, G, D] 
+        # -> (transpose) -> [B, G, L, D]
+        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+        # 2. 应用旋转位置编码 (RoPE)
+        # cos/sin 会应用到 Q 和 K 的每一个 head 上
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        # 3. 处理 KV Cache (用于推理加速)
+        # 更新后 key/value_states 维度可能变为 [B, G, L_total, D]
+        if past_key_values is not None:
+            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx)
+
+        # 4. 获取注意力计算接口 (可能是 FlashAttention, SDPA 或 Eager 实现)
+        attention_interface: Callable = ALL_ATTENTION_FUNCTIONS.get_interface(
+            self.config._attn_implementation, eager_attention_forward
+        )
+
+        # 5. 执行核心注意力计算
+        # 计算: Softmax( (Q @ K^T) * scaling + mask ) @ V
+        # attn_output 维度: [B, H, L, D]
+        attn_output, attn_weights = attention_interface(
+            self,
+            query_states,
+            key_states,
+            value_states,
+            attention_mask,
+            dropout=0.0 if not self.training else self.attention_dropout,
+            scaling=self.scaling,
+            **kwargs,
+        )
+
+        # 6. 合并多头并输出
+        # [B, H, L, D] -> (reshape) -> [B, L, H*D]
+        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        
+        # [B, L, H*D] -> (o_proj) -> [B, L, hidden_size]
+        attn_output = self.o_proj(attn_output)
+        
+        return attn_output, attn_weights
+
+
+class Qwen3VLTextMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        # H: 隐藏层维度 (例如 4096)
+        self.hidden_size = config.hidden_size 
+        # I: 中间投影层维度 (通常为 H 的 2.7 到 4 倍，例如 11008)
+        self.intermediate_size = config.intermediate_size 
+
+        # 门控投影层：将 H 维映射到 I 维。权重维度: [I, H]
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        
+        # 上投影层：同样将 H 维映射到 I 维。权重维度: [I, H]
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        
+        # 下投影层：将 I 维映射回 H 维。权重维度: [H, I]
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+        
+        # 激活函数：通常是 'silu' (即 Swish)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, x):
+        """
+        x: 输入张量，维度为 (B, L, H)
+        """
+        # 1. gate_proj(x): (B, L, H) -> (B, L, I)
+        # 2. act_fn(...): 对上一步结果做激活，维度仍为 (B, L, I)
+        # 3. up_proj(x): (B, L, H) -> (B, L, I)
+        # 4. (act * up): 两个 (B, L, I) 张量进行逐元素相乘 (Element-wise Product)
+        # 5. down_proj(...): (B, L, I) -> (B, L, H)
+        
+        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        
+        return down_proj # 返回维度: (B, L, H)
+
+
+class Qwen3VLTextDecoderLayer(GradientCheckpointingLayer):
+    def __init__(self, config: Qwen3VLTextConfig, layer_idx: int):
+        super().__init__()
+        self.hidden_size = config.hidden_size  # 隐藏层维度 H
+
+        # 自注意力机制模块
+        self.self_attn = Qwen3VLTextAttention(config=config, layer_idx=layer_idx)
+
+        # 前馈网络模块 (通常包含两层线性映射和激活函数)
+        self.mlp = Qwen3VLTextMLP(config)
+
+        # RMSNorm 归一化层，Pre-Norm 结构使用两个归一化层
+        # 输入归一化：用于注意力机制前
+        self.input_layernorm = Qwen3VLTextRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        # 注意力后归一化：用于 MLP 前
+        self.post_attention_layernorm = Qwen3VLTextRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,           # 输入维度: [B, S, H]
+        position_embeddings: tuple[torch.Tensor, torch.Tensor], # RoPE 旋转位置编码偏置: ([B, S, D_head], [B, S, D_head])
+        attention_mask: torch.Tensor | None = None,           # 注意力掩码: [B, 1, S, S] 或简化的因果掩码
+        position_ids: torch.LongTensor | None = None,         # 位置 ID: [B, S]
+        past_key_values: Cache | None = None,                 # KV 缓存，用于自回归生成
+        use_cache: bool | None = False,                       # 是否使用 KV 缓存
+        **kwargs: Unpack[TransformersKwargs],
+    ) -> torch.Tensor:
+        # 1. 暂存残差连接的输入
+        residual = hidden_states  # [B, S, H]
+
+        # 2. Pre-Norm：对输入进行归一化
+        hidden_states = self.input_layernorm(hidden_states)  # [B, S, H]
+
+        # 3. 执行自注意力计算
+        # 注意：这里的 hidden_states 经过了 Norm，但 residual 还是原始输入
+        hidden_states, _ = self.self_attn(
+            hidden_states=hidden_states,      # [B, S, H]
+            attention_mask=attention_mask,    # 掩码信息
+            position_ids=position_ids,        # 位置信息
+            past_key_values=past_key_values,  # 缓存信息
+            use_cache=use_cache,
+            position_embeddings=position_embeddings,
+            **kwargs,
+        ) # 返回值维度: [B, S, H]
+
+        # 4. 第一个残差连接：将注意力输出与原始输入相加
+        hidden_states = residual + hidden_states  # [B, S, H]
+
+        # 5. 准备进入 MLP，暂存当前的残差
+        residual = hidden_states  # [B, S, H]
+
+        # 6. Pre-Norm：对进入 MLP 前的数据进行归一化
+        hidden_states = self.post_attention_layernorm(hidden_states)  # [B, S, H]
+
+        # 7. MLP (Feed-Forward Network) 计算
+        # 通常内部逻辑为：Linear -> Silu -> Linear，升维再降维
+        hidden_states = self.mlp(hidden_states)  # [B, S, H]
+
+        # 8. 第二个残差连接：将 MLP 输出与注意力后的状态相加
+        hidden_states = residual + hidden_states  # [B, S, H]
+
+        # 返回最终的隐状态
+        return hidden_states  # [B, S, H]
