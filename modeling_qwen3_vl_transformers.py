@@ -491,3 +491,215 @@ class Qwen3VLVisionBlock(GradientCheckpointingLayer):
 
         # 返回更新后的特征表示，维度: [N, D]
         return hidden_states
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # 1. 记录输入数据的原始精度 (例如 torch.float16 或 torch.bfloat16)
+        input_dtype = hidden_states.dtype 
+        
+        # 2. 转换为 float32 提高计算精度，避免在平方求和时溢出
+        # hidden_states 维度: [B, L, D] (类型: float32)
+        hidden_states = hidden_states.to(torch.float32) 
+        
+        # 3. 计算均方值 (Mean Square): 对最后一个维度 D 求平方后取平均
+        # hidden_states.pow(2) 维度: [B, L, D]
+        # .mean(-1, keepdim=True) 维度: [B, L, 1]
+        variance = hidden_states.pow(2).mean(-1, keepdim=True) 
+        
+        # 4. 归一化计算: 
+        # rsqrt 是 1/sqrt(x)，即计算 1 / sqrt(方差 + eps)
+        # 然后将输入 hidden_states 乘以这个缩放因子
+        # hidden_states 维度: [B, L, D] (此时内部元素已完成归一化)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        
+        # 5. 仿射变换与类型转换:
+        # self.weight * hidden_states: 将归一化的结果乘以可学习参数 weight (维度 [D])，利用广播机制作用于每一行
+        # 最后 .to(input_dtype) 将精度转回 FP16/BF16 以匹配后续层
+        # 返回维度: [B, L, D]
+        return self.weight * hidden_states.to(input_dtype)
+
+
+class Qwen3VLTextRotaryEmbedding(nn.Module):
+    inv_freq: torch.Tensor  # 逆频率张量，用于计算旋转角度
+
+    def __init__(self, config: Qwen3VLTextConfig, device=None):
+        super().__init__()
+        # 这里的 max_seq_len 通常指文本的最大位置
+        self.max_seq_len_cached = config.max_position_embeddings
+        self.original_max_seq_len = config.max_position_embeddings
+
+        self.config = config
+
+        # 获取 RoPE 类型，默认通常是 "default" 或 "linear"
+        self.rope_type = self.config.rope_parameters["rope_type"]
+        rope_init_fn: Callable = self.compute_default_rope_parameters
+        if self.rope_type != "default":
+            rope_init_fn = ROPE_INIT_FUNCTIONS[self.rope_type]
+        
+        # 计算逆频率 (inv_freq) 和 缩放因子 (attention_scaling)
+        # inv_freq 维度: [head_dim // 2]
+        inv_freq, self.attention_scaling = rope_init_fn(self.config, device)
+
+        # 注册为 buffer，不参与梯度更新
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
+
+        # mrope_section 是关键：它定义了 head_dim // 2 如何分配给 T, H, W
+        # 默认 [24, 20, 20] 表示总共 64 组频率对（即 head_dim=128）
+        self.mrope_section = config.rope_parameters.get("mrope_section", [24, 20, 20])
+
+    @staticmethod
+    def compute_default_rope_parameters(
+        config: Qwen3VLTextConfig | None = None,
+        device: Optional["torch.device"] = None,
+        seq_len: int | None = None,
+    ) -> tuple["torch.Tensor", float]:
+        # 获取 base (通常是 10000 或更大的值，如 1000000 用于长文本)
+        base = config.rope_parameters["rope_theta"]
+        # 计算每个头的维度 (head_dim)
+        dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+
+        attention_factor = 1.0
+
+        # 计算频率公式：1 / (base ^ (2i / dim))
+        # torch.arange(0, dim, 2) 产生 [0, 2, 4, ..., dim-2]，长度为 dim//2
+        # inv_freq 维度: [dim // 2]
+        inv_freq = 1.0 / (
+            base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim)
+        )
+        return inv_freq, attention_factor
+
+    @torch.no_grad()
+    @dynamic_rope_update
+    def forward(self, x, position_ids):
+        """
+        x: 输入张量，维度 [batch_size, seq_len, num_heads, head_dim]
+        position_ids: 位置索引，维度 [3, batch_size, seq_len] (对应 T, H, W)
+        注意：如果输入是纯文本，position_ids 会在下面被扩展
+        """
+        # 如果 position_ids 只有 2 维 [bs, seq_len]，说明只有一组位置（通常是文本）
+        # 则在第 0 维扩展 3 倍，使其变成 [3, bs, seq_len]，模拟 T, H, W 坐标相同
+        if position_ids.ndim == 2:
+            position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
+
+        # 准备频率矩阵
+        # self.inv_freq 原本维度 [dim // 2]
+        # inv_freq_expanded 维度变化: [1, 1, dim // 2, 1] -> [3, bs, dim // 2, 1]
+        inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)
+        
+        # position_ids_expanded 维度变化: [3, bs, seq_len] -> [3, bs, 1, seq_len]
+        position_ids_expanded = position_ids[:, :, None, :].float()
+
+        device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
+        with maybe_autocast(device_type=device_type, enabled=False):
+            # 计算旋转角度 (Theta)
+            # 矩阵乘法: [3, bs, dim//2, 1] @ [3, bs, 1, seq_len] -> [3, bs, dim//2, seq_len]
+            # transpose 后维度: [3, bs, seq_len, dim // 2]
+            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(2, 3)
+            
+            # 调用 M-RoPE 特有的交错逻辑（见下文）
+            # freqs 维度变为: [bs, seq_len, dim // 2]
+            freqs = self.apply_interleaved_mrope(freqs, self.mrope_section)
+            
+            # 拼接频率以匹配完整的 head_dim
+            # emb 维度: [bs, seq_len, dim]
+            emb = torch.cat((freqs, freqs), dim=-1)
+            
+            # 计算 cos 和 sin
+            cos = emb.cos() * self.attention_scaling
+            sin = emb.sin() * self.attention_scaling
+
+        # 返回与输入 x 相同数据类型的 cos/sin，维度均位 [bs, seq_len, dim]
+        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+
+    def apply_interleaved_mrope(self, freqs, mrope_section):
+        """
+        freqs: [3, bs, seq_len, head_dim // 2]
+        mrope_section: 列表，例如 [24, 20, 20]，总和应为 head_dim // 2
+        """
+        # 取出时间维度 (T) 的完整频率作为基底
+        # freqs_t 维度: [bs, seq_len, head_dim // 2]
+        freqs_t = freqs[0]  
+        
+        # 遍历 H (dim=1) 和 W (dim=2)
+        for dim, offset in enumerate((1, 2), start=1):
+            # length 是该部分在 head_dim 中占据的总宽度（乘以 3 是因为逻辑分布）
+            length = mrope_section[dim] * 3
+            
+            # 这里的逻辑是：在 head_dim // 2 这个维度上
+            # 并不是简单的前 24 维给 T，中间 20 维给 H
+            # 而是采用交错索引 (slice(offset, length, 3))
+            # 例如对于 H (offset=1): 会修改索引 1, 4, 7... 的位置
+            # 对于 W (offset=2): 会修改索引 2, 5, 8... 的位置
+            # 这样保证了 T, H, W 的信息在 Embedding 空间中是交织分布的
+            idx = slice(offset, length, 3)
+            
+            # 将对应维度的频率覆盖到 freqs_t 中
+            freqs_t[..., idx] = freqs[dim, ..., idx]
+            
+        return freqs_t
+
+
+# 使用装饰器，可能用于从 Hub 加载优化的算子（如 Triton 或 CUDA 内核）以加速推理/训练
+@use_kernel_forward_from_hub("RMSNorm")
+class Qwen3VLTextRMSNorm(nn.Module):
+    def __init__(self, hidden_size, eps: float = 1e-6) -> None:
+        """
+        Qwen3VLTextRMSNorm 等价于 T5 模型的 LayerNorm 结构。
+        :param hidden_size: 隐藏层的维度大小 (int)
+        :param eps: 为了数值稳定性防止除以 0 而添加的一个极小值 (float)
+        """
+        super().__init__()
+        # 初始化可学习的权重参数 weight，形状为 [hidden_size]
+        # 初始值全部为 1，代表初始状态下不对归一化后的结果做缩放改变
+        self.weight = nn.Parameter(torch.ones(hidden_size)) 
+        
+        # 保存 epsilon 值
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """
+        前向传播计算
+        :param hidden_states: 输入张量，维度通常为 [batch_size, seq_len, hidden_size]
+        """
+        # 记录输入张量的原始数据类型 (如 float16 或 bfloat16)
+        input_dtype = hidden_states.dtype
+        
+        # 将输入转换为 float32 以保证计算均方根时的精度，避免溢出
+        # hidden_states 维度: [B, L, D] (B=Batch, L=SeqLen, D=HiddenSize)
+        hidden_states = hidden_states.to(torch.float32)
+        
+        # 计算均方值 (Mean Square)：将每个特征维度取平方后，在最后一个维度 (-1) 求平均
+        # variance 维度: [B, L, 1]
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        
+        # 核心公式：x = x * 1 / sqrt(variance + eps)
+        # torch.rsqrt 是平方根的倒数，能一步完成开根号和取倒数的操作
+        # hidden_states 维度: [B, L, D]
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        
+        # 将归一化后的数据转回原始类型，并乘以可学习的权重 self.weight
+        # self.weight 维度 [D] 会通过广播机制应用到 [B, L, D] 上
+        # 返回结果维度: [B, L, D]
+        return self.weight * hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        # 定义在打印模型结构时显示的额外信息 (如维度和 eps)
+        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
+
+
+@use_kernel_func_from_hub("rotary_pos_emb")
+def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+    # q, k 维度通常为: [B, H, L, D] (若 unsqueeze_dim=1) 
+    # 或 [B, L, H, D] (若 unsqueeze_dim=2)
+    
+    # cos, sin 初始维度: [L, D] 或 [B, L, D]
+    # 执行 unsqueeze 后，将 cos/sin 插入一个新维度，以便自动广播 (Broadcasting)
+    cos = cos.unsqueeze(unsqueeze_dim) # 维度变为: [B, 1, L, D] 或 [B, L, 1, D]
+    sin = sin.unsqueeze(unsqueeze_dim) # 同上
+    
+    # q * cos: 利用广播机制，cos 会自动在 H 维度复制
+    # rotate_half(q): 维度不变，依然是 [B, H, L, D]
+    q_embed = (q * cos) + (rotate_half(q) * sin) # 维度: [B, H, L, D]
+    k_embed = (k * cos) + (rotate_half(k) * sin) # 维度: [B, H, L, D]
+    
+    return q_embed, k_embed
