@@ -209,3 +209,66 @@ def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb_vision(
+    q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # 记录原始数据类型（通常是 bfloat16 或 float16），以便最后还原
+    orig_q_dtype = q.dtype
+    orig_k_dtype = k.dtype
+
+    # 将 q 和 k 转换为 float32 以保证旋转运算的数值稳定性
+    # q, k 维度: [B, L, H, D] (Batch, Length, Heads, Head_dim)
+    q, k = q.float(), k.float()
+
+    # 对 cos 和 sin 进行升维，增加一个维度以对齐 Head_dim 之前的维度
+    # 输入 cos/sin 维度通常为: [L, D] 或 [B, L, D]
+    # unsqueeze(-2) 后变为: [L, 1, D] 或 [B, L, 1, D]，确保能通过广播机制应用到所有 Head (H) 上
+    cos, sin = cos.unsqueeze(-2).float(), sin.unsqueeze(-2).float()
+
+    # 应用旋转变换公式：q_new = q * cos(mθ) + rotate_half(q) * sin(mθ)
+    # rotate_half 的作用是将向量的后半部分取负并与前半部分交换，模拟复数乘法
+    # q_embed 维度: [B, L, H, D]
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    
+    # 对 Key (k) 执行相同的旋转操作
+    # k_embed 维度: [B, L, H, D]
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+
+    # 将结果转换回原始的高性能低精度格式（如 bf16）
+    q_embed = q_embed.to(orig_q_dtype)
+    k_embed = k_embed.to(orig_k_dtype)
+
+    return q_embed, k_embed
+
+
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """
+    此函数的作用是将 KV 头的数量重复 n_rep 次，以匹配 Query 头的数量。
+    输入维度: (batch, num_key_value_heads, seqlen, head_dim)
+    n_rep: 重复次数，通常为 num_attention_heads // num_key_value_heads
+    """
+    
+    # 1. 获取输入张量的原始维度信息
+    # batch: 批量大小, num_key_value_heads: KV头的数量, slen: 序列长度, head_dim: 每个头的维度
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    
+    # 2. 如果重复次数为1，说明 KV 头数量已经等于 Query 头数量（即标准的 Multi-Head Attention）
+    # 直接返回原张量，无需操作
+    if n_rep == 1:
+        return hidden_states
+    
+    # 3. 维度扩展 (Expansion)
+    # hidden_states[:, :, None, :, :] 在第 2 维（索引从0开始）插入一个新维度。
+    # 插入后维度变为: (batch, num_key_value_heads, 1, slen, head_dim)
+    # .expand(...) 将这个新增的维度从 1 广播（重复）到 n_rep。
+    # 此时维度变为: (batch, num_key_value_heads, n_rep, slen, head_dim)
+    # 注：expand 不会分配新内存，只是创建了视图，效率极高。
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    
+    # 4. 维度重塑 (Reshape)
+    # 将 num_key_value_heads 和 n_rep 合并到同一个维度。
+    # 结果维度: (batch, num_key_value_heads * n_rep, slen, head_dim)
+    # 这里的 num_key_value_heads * n_rep 实际上就等于总的 num_attention_heads。
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
