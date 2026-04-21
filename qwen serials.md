@@ -2,7 +2,9 @@
 ## processing
 <img width="1043" height="138" alt="image" src="https://github.com/user-attachments/assets/c48e9cb5-0683-41c0-9fb3-f18e7e7cbe3b" />
 
-## video_proceesing
+## video_processing
+
+## image_processing
 
 # qwen-3vl
 ## modeling_qwen3_vl.py
