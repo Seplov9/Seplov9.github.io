@@ -364,20 +364,22 @@ print(output_text)
 
 ## Path
 - qwen.py
-  processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")
-  `processor.apply_chat_template`
+  processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")  
+  `processor.apply_chat_template`  
 
 - transformers/src/transformers/processing_utils.py
-  class ProcessorMixin
-  def apply_chat_template:
-  `out = self(
+  class ProcessorMixin  
+  `def apply_chat_template`:
+  ```python
+  out = self(
                 text=prompt,
                 images=batch_images if images_exist else None,
                 videos=batch_videos if videos_exist else None,
                 audio=batch_audios if batch_audios else None,
                 **processor_kwargs,
-            )`
+            )
+  ```
   
 - transformers/src/transformers/processing_utils.py
-  class ProcessorMixin
-  def __call__
+  class ProcessorMixin  
+  `def __call__`
