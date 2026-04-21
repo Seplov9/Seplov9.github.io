@@ -1,7 +1,7 @@
 # 关键文件
 transformers库
-transformers/src/transformers/processing_utils.py
-transformers/src/transformers/image_processing_utils.py
+transformers/src/transformers/processing_utils.py  
+transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py
 
 qwen_vl_utils库
