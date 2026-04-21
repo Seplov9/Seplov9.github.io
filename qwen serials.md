@@ -1,15 +1,15 @@
 # 关键文件
-transformers库
+transformers库  
 transformers/src/transformers/processing_utils.py  
 transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py
 
-qwen_vl_utils库
+qwen_vl_utils库  
 miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)
 
-huggingface files
-config.json
-tokenizer.json
+huggingface files  
+config.json  
+tokenizer.json  
 preprocessor_config.json
 
 # 对比
