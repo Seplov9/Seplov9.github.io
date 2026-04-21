@@ -2,7 +2,11 @@
 transformers库  
 transformers/src/transformers/processing_utils.py  
 transformers/src/transformers/image_processing_utils.py  
-transformers/src/transformers/video_processing_utils.py
+transformers/src/transformers/video_processing_utils.py  
+transformers/src/transformers/models/auto/processing_auto.py  
+transformers/src/transformers/models/auto/image_processing_auto.py  
+transformers/src/transformers/models/auto/video_processing_auto.py  
+transformers/docs/source/en/model_doc/qwen3_vl.md
 
 qwen_vl_utils库  
 miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)
