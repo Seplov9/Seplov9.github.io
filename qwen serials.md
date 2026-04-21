@@ -2,6 +2,18 @@
 ## processing
 <img width="1043" height="138" alt="image" src="https://github.com/user-attachments/assets/c48e9cb5-0683-41c0-9fb3-f18e7e7cbe3b" />
 
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
+<class 'transformers.models.qwen2_vl.image_processing_qwen2_vl.Qwen2VLImageProcessor'>
+<class 'transformers.models.qwen2_vl.video_processing_qwen2_vl.Qwen2VLVideoProcessor'>
+
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct")
+<class 'transformers.models.qwen2_vl.image_processing_qwen2_vl.Qwen2VLImageProcessor'>
+<class 'transformers.models.qwen2_vl.video_processing_qwen2_vl.Qwen2VLVideoProcessor'>
+
+processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
+<class 'transformers.models.qwen2_vl.image_processing_qwen2_vl.Qwen2VLImageProcessor'>
+<class 'transformers.models.qwen3_vl.video_processing_qwen3_vl.Qwen3VLVideoProcessor'>
+
 ## video_processing
 
 ## image_processing
