@@ -34,7 +34,7 @@ messages = [
 ]
 
 # Preparation for inference
-# class ProcessorMixin->def apply_chat_template
+# class ProcessorMixin -> def apply_chat_template
 inputs = processor.apply_chat_template(
     messages,
     tokenize=True,
