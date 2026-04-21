@@ -22,6 +22,8 @@ preprocessor_config.json
 
 ```python
 processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
+image_processor = processor.image_processor
+video_processor = processor.video_processor
 <class 'transformers.models.qwen2_vl.image_processing_qwen2_vl.Qwen2VLImageProcessor'>
 <class 'transformers.models.qwen2_vl.video_processing_qwen2_vl.Qwen2VLVideoProcessor'>
 
