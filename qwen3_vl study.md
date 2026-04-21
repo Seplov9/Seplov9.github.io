@@ -363,11 +363,11 @@ print(output_text)
 ```
 
 ## Path
-- qwen.py
+- qwen.py  
   processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")  
   `processor.apply_chat_template`  
 
-- transformers/src/transformers/processing_utils.py
+- transformers/src/transformers/processing_utils.py  
   class ProcessorMixin  
   `def apply_chat_template`:
   ```python
@@ -380,6 +380,6 @@ print(output_text)
             )
   ```
   
-- transformers/src/transformers/processing_utils.py
+- transformers/src/transformers/processing_utils.py  
   class ProcessorMixin  
   `def __call__`
