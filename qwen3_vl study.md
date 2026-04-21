@@ -3,7 +3,7 @@ https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 
 ## Start-up
 ```shell
-pip install transformers, accelerate
+$ pip install transformers, accelerate
 ```
 
 ## origin
