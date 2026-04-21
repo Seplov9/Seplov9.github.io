@@ -1,6 +1,6 @@
 # 关键文件
 transformers库  
-transformers/src/transformers/processing_utils.py  
+transformers/src/transformers/processing_utils.py(class ProcessorMixin(PushToHubMixin))  
 transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py  
 transformers/src/transformers/models/auto/processing_auto.py  
