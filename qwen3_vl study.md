@@ -1,6 +1,11 @@
 # Demo
 https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct  
 
+## Start-up
+```shell
+pip install transformers, accelerate
+```
+
 ## origin
 ```python
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
