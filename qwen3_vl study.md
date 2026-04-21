@@ -4,6 +4,8 @@ https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 ## Start-up
 ```shell
 $ pip install transformers, accelerate
+$ $env:HF_ENDPOINT = "https://hf-mirror.com" # Windows
+$ export HF_ENDPOINT=https://hf-mirror.com # Linux
 ```
 
 ## origin
