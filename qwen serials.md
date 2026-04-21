@@ -1,3 +1,17 @@
+# 关键文件
+transformers库
+transformers/src/transformers/processing_utils.py
+transformers/src/transformers/image_processing_utils.py
+transformers/src/transformers/video_processing_utils.py
+
+qwen_vl_utils库
+miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)
+
+huggingface files
+config.json
+tokenizer.json
+preprocessor_config.json
+
 # 对比
 ## processing
 <img width="1043" height="138" alt="image" src="https://github.com/user-attachments/assets/c48e9cb5-0683-41c0-9fb3-f18e7e7cbe3b" />
