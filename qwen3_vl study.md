@@ -385,16 +385,16 @@ print(output_text)
             )
   ```
   
-    - transformers/models/qwen3_vl/processing_qwen3_vl.py
-      class Qwen3VLProcessor(ProcessorMixin)
+    - transformers/models/qwen3_vl/processing_qwen3_vl.py  
+      class Qwen3VLProcessor(ProcessorMixin)  
       `def __call__()`
       ```python
       if images is not None:
                 image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
       ```
 
-    - transformers/image_processing_utils.py
-      class BaseImageProcessor
+    - transformers/image_processing_utils.py  
+      class BaseImageProcessor  
       `def __call__()`
       ```python
       def __call__(self, images: ImageInput, *args, **kwargs: Unpack[ImagesKwargs]) -> BatchFeature:
@@ -402,9 +402,9 @@ print(output_text)
             return self.preprocess(images, *args, **kwargs)
       ```
     
-    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py
-      class Qwen2VLImageProcessor
-      `def preprocess()`
+    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
+      class Qwen2VLImageProcessor  
+      `def preprocess()`  
       ```python
       @auto_docstring
         def preprocess(
@@ -415,19 +415,19 @@ print(output_text)
             return super().preprocess(images, **kwargs)
       ```
     
-    - transformers/image_processing_utils.py
-      class BaseImageProcessor
-      `def preprocess()`
+    - transformers/image_processing_utils.py  
+      class BaseImageProcessor  
+      `def preprocess()`  
       `return self._preprocess_image_like_inputs(images, *args, **kwargs)`
     
-    - transformers/image_processing_utils.py
-      class BaseImageProcessor
-      `def _preprocess_image_like_inputs()`
+    - transformers/image_processing_utils.py  
+      class BaseImageProcessor  
+      `def _preprocess_image_like_inputs()`  
       `images = self._prepare_image_like_inputs(images, **kwargs)`
     
     - transformers/image_processing_utils.py  
       class BaseImageProcessor  
-      `def _prepare_image_like_inputs()`  
+      `def _prepare_image_like_inputs()`
       ```python
       def _preprocess_image_like_inputs(
             self,
@@ -447,13 +447,13 @@ print(output_text)
             return self._preprocess(images, *args, **kwargs)
       ```
     
-    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py
-      class Qwen2VLImageProcessor
-      `def _preprocess`
+    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
+      class Qwen2VLImageProcessor  
+      `def _preprocess`  
       `return`
     
-    - transformers/models/qwen3_vl/processing_qwen3_vl.py
-      class Qwen3VLProcessor(ProcessorMixin)
+    - transformers/models/qwen3_vl/processing_qwen3_vl.py  
+      class Qwen3VLProcessor(ProcessorMixin)  
       `def __call__()`
       ```python
       if videos is not None:
@@ -462,7 +462,7 @@ print(output_text)
 
 - transformers/src/transformers/processing_utils.py  
   class ProcessorMixin  
-  `def apply_chat_template()`:
+  `def apply_chat_template()`
   ```python
   out = self(
                 text=prompt,
