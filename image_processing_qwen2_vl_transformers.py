@@ -194,13 +194,20 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         **kwargs,
     ) -> BatchFeature:
         # 1. 将图像按分辨率分组，减少不同尺寸带来的 pad 开销
-        # grouped_images是一个字典dict，为kv对， 格式为：{ 分辨率： 图片 }
-        # grouped_images_index也是一个字典dict，格式为：{ 图像序号: (张量形状, 偏移量/起始索引) }
+        '''
+        grouped_images是一个字典dict，为kv对， 格式为：{ 图像形状（分辨率） ： 堆叠后的图片张量 }
+        grouped_images_index也是一个字典dict，格式为：{ 原始图像序号 : (张量形状组, 组内位置索引) }
+        原始索引 (Key)	分组后的定位 (Value)	含义
+        0	            ((3, 224, 224), 0)	    原来第 0 张图，现在在 224x224 组的第 0 个位置
+        1	            ((3, 512, 512), 0)	    原来第 1 张图，现在在 512x512 组的第 0 个位置
+        2	            ((3, 224, 224), 1)	    原来第 2 张图，现在在 224x224 组的第 1 个位置
+        '''
+        
         '''
         image * 1
         grouped_images.keys()[0]: torch.Size([1365, 2048])] (pdb grouped_images.keys())
         grouped_images.values()[0].shape: [1, 3, 1365, 2048] (pdb [v.shape for v in grouped_images.values()])
-        grouped_images_index: {0: (torch.Size([1376, 2048]), 0)}
+        grouped_images_index: {0: (torch.Size([1365, 2048]), 0)}
         '''
         
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
@@ -234,15 +241,18 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
             '''
         
         # 3. 将缩放后的图像还原回原始输入的顺序列表
-        # reorder_images作用是：根据文本中出现的图像占位符顺序，重新排列图像数据的存储顺序。
+        # reorder_images作用是：根据文本中出现的图像占位符顺序，重新排列图像数据的存储顺序，返回list
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
         # image * 1: resized_images[0].shape: [3, 1376, 2048]
 
         # 4. 再次分组（针对缩放后的尺寸），准备进行像素值处理
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
-        # image * 1
-        # grouped_images.keys()[0]: torch.Size([1376, 2048])] (pdb grouped_images.keys())
-        # grouped_images.values()[0].shape: [1, 3, 1376, 2048] (pdb [v.shape for v in grouped_images.values()])
+        '''
+        image * 1
+        grouped_images.keys()[0]: torch.Size([1376, 2048])] (pdb grouped_images.keys())
+        grouped_images.values()[0].shape: [1, 3, 1376, 2048] (pdb [v.shape for v in grouped_images.values()])
+        grouped_images_index: {0: (torch.Size([1376, 2048]), 0)}
+        '''
         
         processed_images_grouped = {}
         processed_grids = {}
@@ -318,6 +328,12 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         # 9. 还原顺序并合并 Batch
         processed_images = reorder_images(processed_images_grouped, grouped_images_index)
         processed_grids_ordered = reorder_images(processed_grids, grouped_images_index)
+
+        '''
+        image *1
+        processed_images[0].shape: [11008, 1536]
+        processed_grids_ordered[0]: [1, 86, 128]
+        '''
         
         # pixel_values 维度: [Total_B, Total_Patches, Patch_Dim]
         pixel_values = torch.cat(processed_images, dim=0)
