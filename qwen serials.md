@@ -11,14 +11,14 @@ transformers/src/transformers/models/auto/video_processing_auto.py
 transformers/docs/source/en/model_doc/qwen3_vl.md
 
 qwen_vl_utils库  
-miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)
+miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)(qwen2vl qwen2.5vl)
 
 huggingface files  
 config.json  
 tokenizer.json  
 preprocessor_config.json
 
-参数  
+模型参数  
 transformers/src/transformers/models/qwen2_vl/processing_qwen2_vl.py  
 transformers/src/transformers/models/qwen2_vl/configuration_qwen2_vl.py  
 transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py  
