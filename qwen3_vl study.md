@@ -11,6 +11,7 @@ $ export HF_ENDPOINT=https://hf-mirror.com # Linux
 ## Debug
 [使用VSCode远程调试AutoDL上的程序](https://opc.csdn.net/696df288437a6b4033690771.html)  
 [vscode 中使用 python debugger 遇到 fail to resolve env ‘/conda‘](https://modelers.csdn.net/69a7ca637bbde9200b9d8e09.html)
+目前只能使用在vscode远程连接到服务器后，使用pdb进行debug
 
 ## origin
 ```python
