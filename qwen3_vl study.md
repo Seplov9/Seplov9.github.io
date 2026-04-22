@@ -5,7 +5,12 @@ https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 ```shell
 $ pip install transformers
 $ pip install accelerate # model = Qwen3VLForConditionalGeneration.from_pretrained(), device_map in transformers\modeling_utils.py
-$ pip install torchcodec # video, torchvision update
+# video
+$ conda install "ffmpeg"
+$ pip install torchcodec # replace torchvision
+# https://github.com/meta-pytorch/torchcodec
+# use "conda list torch" to check and install the right version
+
 $ $env:HF_ENDPOINT = "https://hf-mirror.com" # Windows
 $ export HF_ENDPOINT=https://hf-mirror.com # Linux
 ```
