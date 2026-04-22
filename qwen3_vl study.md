@@ -393,64 +393,64 @@ print(output_text)
                 image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
       ```
 
-    - transformers/image_processing_utils.py  
-      class BaseImageProcessor  
-      `def __call__()`
-      ```python
-      def __call__(self, images: ImageInput, *args, **kwargs: Unpack[ImagesKwargs]) -> BatchFeature:
-            """Preprocess an image or a batch of images."""
-            return self.preprocess(images, *args, **kwargs)
-      ```
+        - transformers/image_processing_utils.py  
+          class BaseImageProcessor  
+          `def __call__()`
+          ```python
+          def __call__(self, images: ImageInput, *args, **kwargs: Unpack[ImagesKwargs]) -> BatchFeature:
+                """Preprocess an image or a batch of images."""
+                return self.preprocess(images, *args, **kwargs)
+          ```
     
-    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
-      class Qwen2VLImageProcessor  
-      `def preprocess()`  
-      ```python
-      @auto_docstring
-        def preprocess(
-            self,
-            images: ImageInput,
-            **kwargs: Unpack[Qwen2VLImageProcessorKwargs],
-        ) -> BatchFeature:
-            return super().preprocess(images, **kwargs)
-      ```
-    
-    - transformers/image_processing_utils.py  
-      class BaseImageProcessor  
-      `def preprocess()`  
-      `return self._preprocess_image_like_inputs(images, *args, **kwargs)`
-    
-    - transformers/image_processing_utils.py  
-      class BaseImageProcessor  
-      `def _preprocess_image_like_inputs()`  
-      `images = self._prepare_image_like_inputs(images, **kwargs)`
-    
-    - transformers/image_processing_utils.py  
-      class BaseImageProcessor  
-      `def _prepare_image_like_inputs()`
-      ```python
-      def _preprocess_image_like_inputs(
-            self,
-            images: ImageInput,
-            *args,
-            **kwargs: Unpack[ImagesKwargs],
-        ) -> BatchFeature:
-            """
-            Preprocess image-like inputs by preparing them and dispatching to `_preprocess`.
-    
-            This method first calls `_prepare_image_like_inputs` to convert raw inputs into the backend's
-            format, then calls `_preprocess` for the actual batch processing. Override this method in
-            model-specific processors that need to handle multiple image-like input types (e.g., images
-            and segmentation maps) or need custom orchestration of the preprocessing pipeline.
-            """
-            images = self._prepare_image_like_inputs(images, **kwargs)
-            return self._preprocess(images, *args, **kwargs)
-      ```
-    
-    - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
-      class Qwen2VLImageProcessor  
-      `def _preprocess`  
-      `return`
+        - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
+          class Qwen2VLImageProcessor  
+          `def preprocess()`  
+          ```python
+          @auto_docstring
+            def preprocess(
+                self,
+                images: ImageInput,
+                **kwargs: Unpack[Qwen2VLImageProcessorKwargs],
+            ) -> BatchFeature:
+                return super().preprocess(images, **kwargs)
+          ```
+        
+        - transformers/image_processing_utils.py  
+          class BaseImageProcessor  
+          `def preprocess()`  
+          `return self._preprocess_image_like_inputs(images, *args, **kwargs)`
+        
+        - transformers/image_processing_utils.py  
+          class BaseImageProcessor  
+          `def _preprocess_image_like_inputs()`  
+          `images = self._prepare_image_like_inputs(images, **kwargs)`
+        
+        - transformers/image_processing_utils.py  
+          class BaseImageProcessor  
+          `def _prepare_image_like_inputs()`
+          ```python
+          def _preprocess_image_like_inputs(
+                self,
+                images: ImageInput,
+                *args,
+                **kwargs: Unpack[ImagesKwargs],
+            ) -> BatchFeature:
+                """
+                Preprocess image-like inputs by preparing them and dispatching to `_preprocess`.
+        
+                This method first calls `_prepare_image_like_inputs` to convert raw inputs into the backend's
+                format, then calls `_preprocess` for the actual batch processing. Override this method in
+                model-specific processors that need to handle multiple image-like input types (e.g., images
+                and segmentation maps) or need custom orchestration of the preprocessing pipeline.
+                """
+                images = self._prepare_image_like_inputs(images, **kwargs)
+                return self._preprocess(images, *args, **kwargs)
+          ```
+        
+        - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
+          class Qwen2VLImageProcessor  
+          `def _preprocess`  
+          `return`
     
     - transformers/models/qwen3_vl/processing_qwen3_vl.py  
       class Qwen3VLProcessor(ProcessorMixin)  
