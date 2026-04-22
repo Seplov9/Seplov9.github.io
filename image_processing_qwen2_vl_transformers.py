@@ -369,10 +369,17 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
             processed_images_grouped[shape] = flatten_patches
             processed_grids[shape] = [[grid_t, grid_h, grid_w]] * batch_size
             '''
+            image * 1: 
+            processed_images_grouped.keys(): dict_keys([torch.Size([1376, 2048])]) (pdb processed_images_grouped.keys())
+            processed_images_grouped.values()[0].shape: [1, 11008, 1536] (pdb [v.shape for v in processed_images_grouped.values()])
+            processed_grids.keys(): dict_keys([torch.Size([1376, 2048])]) (pdb processed_grids.keys())
+            processed_grids.values(): dict_values([[[1, 86, 128]]])
+            '''
+            '''
             image * 2: 
-            processed_images_grouped.keys()[0]: torch.Size([1376, 2048])] (pdb processed_images_grouped.keys())
+            processed_images_grouped.keys(): dict_keys([torch.Size([1376, 2048])]) (pdb processed_images_grouped.keys())
             processed_images_grouped.values()[0].shape: [2, 11008, 1536] (pdb [v.shape for v in processed_images_grouped.values()])
-            processed_grids.keys()[0]: torch.Size([1376, 2048])] (pdb processed_grids.keys())
+            processed_grids.keys(): dict_keys([torch.Size([1376, 2048])]) (pdb processed_grids.keys())
             processed_grids.values(): dict_values([[[1, 86, 128], [1, 86, 128]]])
             '''
 
