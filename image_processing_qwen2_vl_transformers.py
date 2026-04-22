@@ -177,7 +177,13 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
     def _preprocess(
         self,
         images: list["torch.Tensor"],              # 输入图像列表，是一个list
-        # images[0].shape: [3, 1365, 2048]
+        '''image * 1
+        images[0].shape: [3, 1365, 2048]
+        '''
+        '''image * 2
+        images[0].shape: [3, 1365, 2048]
+        images[1].shape: [3, 1365, 2048]
+        '''
         do_resize: bool,
         size: SizeDict,
         resample: "PILImageResampling | tvF.InterpolationMode | int | None",
@@ -209,6 +215,12 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         grouped_images.values()[0].shape: [1, 3, 1365, 2048] (pdb [v.shape for v in grouped_images.values()])
         grouped_images_index: {0: (torch.Size([1365, 2048]), 0)}
         '''
+        '''
+        image * 2
+        grouped_images.keys()[0]: torch.Size([1365, 2048])] (pdb grouped_images.keys())
+        grouped_images.values()[0].shape: [2, 3, 1365, 2048] (pdb [v.shape for v in grouped_images.values()])
+        grouped_images_index: {0: (torch.Size([1365, 2048]), 0), 1: (torch.Size([1365, 2048]), 1)}
+        '''
         
         grouped_images, grouped_images_index = group_images_by_shape(images, disable_grouping=disable_grouping)
         resized_images_grouped = {}
@@ -236,14 +248,27 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
             resized_images_grouped[shape] = stacked_images
             '''
             image * 1
-            resized_images_grouped.keys()[0].shape: torch.Size([1365, 2048])
-            resized_images_grouped.values()[0].shape: [1, 3, 1376, 2048]
+            resized_images_grouped.keys()[0].shape: torch.Size([1365, 2048]) (pdb resized_images_grouped.keys())
+            resized_images_grouped.values()[0].shape: [1, 3, 1376, 2048] (pdb [v.shape for v in resized_images_grouped.values()])
+            '''
+            '''
+            image * 2
+            resized_images_grouped.keys()[0].shape: torch.Size([1365, 2048]) (pdb resized_images_grouped.keys())
+            resized_images_grouped.values()[0].shape: [2, 3, 1376, 2048] (pdb [v.shape for v in resized_images_grouped.values()])
             '''
         
         # 3. 将缩放后的图像还原回原始输入的顺序列表
         # reorder_images作用是：根据文本中出现的图像占位符顺序，重新排列图像数据的存储顺序，返回list
         resized_images = reorder_images(resized_images_grouped, grouped_images_index)
-        # image * 1: resized_images[0].shape: [3, 1376, 2048]
+        '''
+        image * 1:
+        resized_images[0].shape: [3, 1376, 2048]
+        '''
+        '''
+        image * 2
+        resized_images[0].shape: [3, 1376, 2048]
+        resized_images[1].shape: [3, 1376, 2048]
+        '''
 
         # 4. 再次分组（针对缩放后的尺寸），准备进行像素值处理
         grouped_images, grouped_images_index = group_images_by_shape(resized_images, disable_grouping=disable_grouping)
@@ -252,6 +277,12 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
         grouped_images.keys()[0]: torch.Size([1376, 2048])] (pdb grouped_images.keys())
         grouped_images.values()[0].shape: [1, 3, 1376, 2048] (pdb [v.shape for v in grouped_images.values()])
         grouped_images_index: {0: (torch.Size([1376, 2048]), 0)}
+        '''
+        '''
+        image * 2
+        grouped_images.keys()[0]: torch.Size([1376, 2048])] (pdb grouped_images.keys())
+        grouped_images.values()[0].shape: [2, 3, 1376, 2048] (pdb [v.shape for v in grouped_images.values()])
+        grouped_images_index: {0: (torch.Size([1376, 2048]), 0), 1: (torch.Size([1376, 2048]), 1)}
         '''
         
         processed_images_grouped = {}
@@ -264,26 +295,31 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
                 stacked_images, do_rescale, rescale_factor, do_normalize, image_mean, image_std
             )
             # image * 1: patches.shape: [1, 3, 1376, 2048]
+            # image * 2: patches.shape: [2, 3, 1376, 2048]
             
             # 如果是图像 (ndim=4, [B, C, H, W])，增加时间轴 T=1 -> [B, 1, C, H, W]
             if patches.ndim == 4:
                 patches = patches.unsqueeze(1)
             # image * 1: patches.shape: [1, 1, 3, 1376, 2048]
+            # image * 2: patches.shape: [2, 1, 3, 1376, 2048]
             
             # 5. 视频时间轴对齐：如果 T 不是 temporal_patch_size 的倍数，则对最后一帧进行填充(Padding)
             if patches.shape[1] % temporal_patch_size != 0:
                 # 选取最后一帧并重复: [B, 1, C, H, W]
                 repeats = patches[:, -1:].repeat(1, temporal_patch_size - 1, 1, 1, 1)
                 # image * 1: repeats.shape: [1, 1, 3, 1376, 2048]
+                # image * 2: repeats.shape: [2, 1, 3, 1376, 2048]
                 
                 # 拼接后 T 变为 temporal_patch_size 的倍数
                 patches = torch.cat([patches, repeats], dim=1)
                 # image * 1: patches.shape: [1, 2, 3, 1376, 2048]
+                # image * 2: patches.shape: [2, 2, 3, 1376, 2048]
             
             batch_size, grid_t_raw, channel = patches.shape[:3] # grid_t_raw 是 T 维度
             grid_t = grid_t_raw // temporal_patch_size        # 时间维度的 patch 数量
             grid_h, grid_w = resized_height // patch_size, resized_width // patch_size # 空间维度的 patch 数量
             # image * 1: (grid_t, grid_h, grid_w) = (1, 86, 128)
+            # image * 2: (grid_t, grid_h, grid_w) = (1, 86, 128)
 
             # 6. 核心重塑 (Reshape): 将图像切割成 3D Patches
             # 维度从 [B, T, C, H, W] 拆解为极其细分的维度以备后续 Permute
@@ -300,18 +336,20 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
                 patch_size,
             )
             # image * 1: patches.shape: [1, 1, 2, 3, 43, 2, 16, 64, 2, 16]
+            # image * 2: patches.shape: [2, 1, 2, 3, 43, 2, 16, 64, 2, 16]
             
             # 7. 维度重排 (Permute): 重新排列维度以将 patch 内部的数据聚合
             # 目标是把时间块、空间块的像素拉到最后，以便 Flatten
             patches = patches.permute(0, 1, 4, 7, 5, 8, 3, 2, 6, 9)
             # image * 1: patches.shape: [1, 1, 43, 64, 2, 2, 3, 2, 16, 16]
+            # image * 2: patches.shape: [2, 1, 43, 64, 2, 2, 3, 2, 16, 16]
             
             # 8. 展平 (Flatten):
             # 最终维度: [B, (grid_t * grid_h * grid_w), (C * T_patch * H_patch * W_patch)]
             flatten_patches = patches.reshape(
-                batch_size,  # (1)
-                grid_t * grid_h * grid_w,  # (1, 43, 64, 2, 2)
-                channel * temporal_patch_size * patch_size * patch_size,  # (3, 2, 16, 16)
+                batch_size,
+                grid_t * grid_h * grid_w,
+                channel * temporal_patch_size * patch_size * patch_size,
             )
             '''
             image * 1: 
@@ -320,27 +358,46 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
             channel * temporal_patch_size * patch_size * patch_size: (3, 2, 16, 16)
             flatten_patches.shape: [1, 11008, 1536]
             '''
+            '''
+            image * 2: 
+            batch_size: (2)
+            grid_t * grid_h * grid_w: (1, 43, 64, 2, 2)
+            channel * temporal_patch_size * patch_size * patch_size: (3, 2, 16, 16)
+            flatten_patches.shape: [2, 11008, 1536]
+            '''
 
             processed_images_grouped[shape] = flatten_patches
-            # 记录当前分辨率下的补丁网格结构 [T, H, W]
             processed_grids[shape] = [[grid_t, grid_h, grid_w]] * batch_size
+            '''
+            image * 2: 
+            processed_images_grouped.keys()[0]: torch.Size([1376, 2048])] (pdb processed_images_grouped.keys())
+            processed_images_grouped.values()[0].shape: [2, 11008, 1536] (pdb [v.shape for v in processed_images_grouped.values()])
+            processed_grids.keys()[0]: torch.Size([1376, 2048])] (pdb processed_grids.keys())
+            processed_grids.values(): dict_values([[[1, 86, 128], [1, 86, 128]]])
+            '''
 
         # 9. 还原顺序并合并 Batch
         processed_images = reorder_images(processed_images_grouped, grouped_images_index)
         processed_grids_ordered = reorder_images(processed_grids, grouped_images_index)
 
         '''
-        image *1
+        image * 1
         processed_images[0].shape: [11008, 1536]
-        processed_grids_ordered[0]: [1, 86, 128]
+        processed_grids_ordered: [[1, 86, 128]]
+        '''
+        '''
+        image * 2
+        processed_images[0].shape: [11008, 1536], processed_images[1].shape: [11008, 1536]
+        processed_grids_ordered: [[1, 86, 128], [1, 86, 128]]
         '''
         
-        # pixel_values 维度: [Total_B, Total_Patches, Patch_Dim]
+        # pixel_values 维度: [Total_Patches, Patch_Dim]
         pixel_values = torch.cat(processed_images, dim=0)
         # image_grid_thw 维度: [Total_B, 3] (记录每张图的 T, H, W 网格数)
         image_grid_thw = torch.tensor(processed_grids_ordered, dtype=torch.long)
 
         # image * 1: pixel_values.shape: [11008, 1536], image_grid_thw.shape: [1, 3]
+        # image * 2: pixel_values.shape: [22016, 1536], image_grid_thw.shape: [2, 3]
 
         return BatchFeature(
             data={"pixel_values": pixel_values, "image_grid_thw": image_grid_thw}, 
