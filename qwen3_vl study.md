@@ -460,18 +460,24 @@ print(output_text)
                 videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
       ```
 
+    - transformers/models/qwen3_vl/processing_qwen3_vl.py  
+      class Qwen3VLProcessor(ProcessorMixin)  
+      `def __call__()`  
+      `text_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"])`
+
+      - transformers/tokenization_utils_base.py  
+        class PreTrainedTokenizerBase  
+        `def __call__()`  
+        `encodings = self._encode_plus`
+
+      - transformers/tokenization_utils_tokenizers.py  
+        class TokenizersBackend  
+        `def _encode_plus()`
+      
+
 - transformers/src/transformers/processing_utils.py  
   class ProcessorMixin  
   `def apply_chat_template()`
-  ```python
-  out = self(
-                text=prompt,
-                images=batch_images if images_exist else None,
-                videos=batch_videos if videos_exist else None,
-                audio=batch_audios if batch_audios else None,
-                **processor_kwargs,
-            )
-  ```
 
 - qwen.py  
   `inputs = inputs.to(model.device)`  
