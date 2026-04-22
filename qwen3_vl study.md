@@ -467,14 +467,23 @@ print(output_text)
                 videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
       ```
 
-      - transformers/video_processing_utils.py
-        class BaseVideoProcessor
+      - transformers/video_processing_utils.py  
+        class BaseVideoProcessor  
         `def __call__()`
         ```python
         def __call__(self, videos, **kwargs) -> BatchFeature:
             return self.preprocess(videos, **kwargs)
         ```
 
+      - transformers/video_processing_utils.py  
+        class BaseVideoProcessor  
+        `def preprocess()`  
+        `preprocessed_videos = self._preprocess(videos=videos, **kwargs)`
+
+      - transformers/models/qwen3_vl/video_processing_qwen3_vl.py  
+        class Qwen3VLProcessor  
+        `def _preprocess()`  
+        `return`
 
     - transformers/models/qwen3_vl/processing_qwen3_vl.py  
       class Qwen3VLProcessor(ProcessorMixin)  
@@ -490,7 +499,6 @@ print(output_text)
         class TokenizersBackend  
         `def _encode_plus()`
       
-
 - transformers/src/transformers/processing_utils.py  
   class ProcessorMixin  
   `def apply_chat_template()`
