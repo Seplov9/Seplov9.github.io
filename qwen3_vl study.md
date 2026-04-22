@@ -3,7 +3,9 @@ https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 
 ## Start-up
 ```shell
-$ pip install transformers, accelerate
+$ pip install transformers
+$ pip install accelerate # model = Qwen3VLForConditionalGeneration.from_pretrained(), device_map in transformers\modeling_utils.py
+$ pip install torchcodec # video, torchvision update
 $ $env:HF_ENDPOINT = "https://hf-mirror.com" # Windows
 $ export HF_ENDPOINT=https://hf-mirror.com # Linux
 ```
@@ -459,6 +461,15 @@ print(output_text)
       if videos is not None:
                 videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
       ```
+
+      - transformers/video_processing_utils.py
+        class BaseVideoProcessor
+        `def __call__()`
+        ```python
+        def __call__(self, videos, **kwargs) -> BatchFeature:
+            return self.preprocess(videos, **kwargs)
+        ```
+
 
     - transformers/models/qwen3_vl/processing_qwen3_vl.py  
       class Qwen3VLProcessor(ProcessorMixin)  
