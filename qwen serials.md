@@ -4,7 +4,7 @@ transformers/src/transformers/processing_utils.py(class ProcessorMixin(PushToHub
 transformers/src/transformers/generation/utils.py(class GenerationMixin(ContinuousMixin))
 transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py  
-transformers/src/transformers/models/qwen2_vl(v5.3.0 class Qwen2VLImageProcessorFast(BaseImageProcessorFast))  
+transformers/src/transformers/models/qwen2_vl(v5.3.0 class Qwen2VLImageProcessorFast())  
 transformers/src/transformers/models/auto/processing_auto.py  
 transformers/src/transformers/models/auto/image_processing_auto.py  
 transformers/src/transformers/models/auto/video_processing_auto.py  
@@ -17,6 +17,14 @@ huggingface files
 config.json  
 tokenizer.json  
 preprocessor_config.json
+
+参数  
+transformers/src/transformers/models/qwen2_vl/processing_qwen2_vl.py  
+transformers/src/transformers/models/qwen2_vl/configuration_qwen2_vl.py  
+transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py  
+transformers/src/transformers/models/qwen3_vl/configuration_qwen3_vl.py  
+huggingface config.json
+
 
 # 对比
 ## processing
