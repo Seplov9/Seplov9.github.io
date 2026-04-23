@@ -53,12 +53,12 @@ processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
   class Qwen2VLImageProcessor  
   `def _preprocess()`  
-<img width="2999" height="2175" alt="image" src="https://github.com/user-attachments/assets/3e9688fd-df8f-4b02-94bf-52728980e597" />
+<img width="2673" height="1945" alt="image" src="https://github.com/user-attachments/assets/07fff3fc-3e17-41da-901f-9276b2054ea3" />
 
 ## modeling
 ### transformers/models/qwen3_vl/modeling_qwen3_vl.py
 - 类结构
-<img width="2673" height="1945" alt="image" src="https://github.com/user-attachments/assets/07fff3fc-3e17-41da-901f-9276b2054ea3" />
+<img width="2154" height="1324" alt="image" src="https://github.com/user-attachments/assets/e9d35103-8f3d-4aa2-afd9-241d2f466f3c" />
 
 - Attention
 <img width="803" height="746" alt="image" src="https://github.com/user-attachments/assets/d04db389-e74a-4d4f-9e9a-293064b9f634" />
