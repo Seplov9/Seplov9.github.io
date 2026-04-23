@@ -28,7 +28,7 @@ huggingface config.json
 
 
 # 对比
-## processing
+## processor
 <img width="1043" height="138" alt="image" src="https://github.com/user-attachments/assets/c48e9cb5-0683-41c0-9fb3-f18e7e7cbe3b" />
 
 ```python
@@ -52,10 +52,11 @@ processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 ## image_processing
 image_processing_qwen2_vl.py  
 class Qwen2VLImageProcessor  
-def _preprocess()  
+`def _preprocess()`  
 <img width="2999" height="2175" alt="image" src="https://github.com/user-attachments/assets/3e9688fd-df8f-4b02-94bf-52728980e597" />
 
+## modeling
+### modeling_qwen3_vl.py
+<img width="2214" height="1334" alt="image" src="https://github.com/user-attachments/assets/6d780db0-9b1c-4f8b-8b65-4ef1eeea59fa" />
 
-# qwen-3vl
-## modeling_qwen3_vl.py
 <img width="803" height="746" alt="image" src="https://github.com/user-attachments/assets/d04db389-e74a-4d4f-9e9a-293064b9f634" />
