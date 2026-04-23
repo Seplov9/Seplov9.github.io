@@ -504,4 +504,72 @@ print(output_text)
   `def apply_chat_template()`
 
 - qwen.py  
-  `inputs = inputs.to(model.device)`  
+  `inputs = inputs.to(model.device)`
+
+- qwen.py
+  model = Qwen3VLForConditionalGeneration.from_pretrained("Qwen/Qwen3-VL-2B-Instruct", dtype="auto", device_map="auto")
+  generated_ids = model.generate(**inputs, max_new_tokens=128)
+
+- transformers/src/transformers/generation/utils.py
+  class GenerationMixin  
+  `def generate()`
+  ```python
+  generation_mode = generation_config.get_generation_mode(assistant_model)  # <GenerationMode.SAMPLE: 'sample'>
+  decoding_method = getattr(type(self), GENERATION_MODES_MAPPING[generation_mode])  # <function GenerationMixin._sample at 0x7ff7a5d9be20>
+  
+  result = decoding_method(
+            self,
+            input_ids,
+            logits_processor=prepared_logits_processor,
+            stopping_criteria=prepared_stopping_criteria,
+            generation_config=generation_config,
+            **generation_mode_kwargs,
+            **model_kwargs,
+        )
+  ```
+
+- transformers/src/transformers/generation/utils.py
+  class GenerationMixin  
+  `def _sample()`
+  ```python
+  outputs = self._prefill(
+            input_ids,
+            generation_config,
+            model_kwargs,
+            is_first_iteration=not generation_config.is_assistant,
+        )
+  ```
+
+- transformers/src/transformers/generation/utils.py
+  class GenerationMixin  
+  `def _prefill()`
+  ```python
+  if generation_config.prefill_chunk_size is None:
+            model_inputs = self.prepare_inputs_for_generation(
+                input_ids,
+                next_sequence_length=next_sequence_length,
+                is_first_iteration=is_first_iteration,
+                **model_kwargs,
+            )
+            return self(**model_inputs, return_dict=True)
+  ```
+
+- torch/nn/modules/module.py  
+  class Module  
+  `def _wrapped_call_impl()`
+  `return self._call_impl(*args, **kwargs)`
+
+
+- torch/nn/modules/module.py  
+  class Module  
+  `def _call_impl()`
+  `return forward_call(*args, **kwargs)`
+
+- transformers/utils/generic.py
+  `def can_return_tuple()`
+  `def wrapper()`
+  `output = func(self, *args, **kwargs)`
+
+- transformers/models/qwen3_vl/modeling_qwen3_vl.py
+  class Qwen3VLForConditionalGeneration
+  `def forword()`
