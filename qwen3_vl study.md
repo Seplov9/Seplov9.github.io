@@ -506,7 +506,7 @@ print(output_text)
 - qwen.py  
   `inputs = inputs.to(model.device)`
 
-- qwen.py
+- qwen.py  
   model = Qwen3VLForConditionalGeneration.from_pretrained("Qwen/Qwen3-VL-2B-Instruct", dtype="auto", device_map="auto")  
   generated_ids = model.generate(**inputs, max_new_tokens=128)
 
