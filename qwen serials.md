@@ -1,5 +1,5 @@
 # 关键文件
-transformers库  
+- transformers库  
 transformers/src/transformers/processing_utils.py(class ProcessorMixin(PushToHubMixin))  
 transformers/src/transformers/generation/utils.py(class GenerationMixin(ContinuousMixin))
 transformers/src/transformers/modeling_utils.py(class PreTrainedModel)  
@@ -11,15 +11,15 @@ transformers/src/transformers/models/auto/image_processing_auto.py
 transformers/src/transformers/models/auto/video_processing_auto.py  
 transformers/docs/source/en/model_doc/qwen3_vl.md
 
-qwen_vl_utils库  
+- qwen_vl_utils库  
 miniconda3/lib/python3.12/site-packages/qwen_vl_utils/vision_process.py(autodl)(qwen2vl qwen2.5vl)
 
-huggingface files  
+- huggingface files  
 config.json  
 tokenizer.json  
 preprocessor_config.json
 
-模型参数  
+- 模型参数  
 transformers/src/transformers/models/qwen2_vl/processing_qwen2_vl.py  
 transformers/src/transformers/models/qwen2_vl/configuration_qwen2_vl.py  
 transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py  
@@ -57,6 +57,8 @@ processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 
 ## modeling
 ### transformers/models/qwen3_vl/modeling_qwen3_vl.py
+- 类结构
 <img width="2214" height="1334" alt="image" src="https://github.com/user-attachments/assets/6d780db0-9b1c-4f8b-8b65-4ef1eeea59fa" />
 
+- Attention
 <img width="803" height="746" alt="image" src="https://github.com/user-attachments/assets/d04db389-e74a-4d4f-9e9a-293064b9f634" />
