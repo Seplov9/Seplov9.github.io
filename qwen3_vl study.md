@@ -538,48 +538,48 @@ modeling_qwen3_vl.py
         )
   ```
 
-- transformers/src/transformers/generation/utils.py  
-  class GenerationMixin  
-  `def _sample()`
-  ```python
-  outputs = self._prefill(
-            input_ids,
-            generation_config,
-            model_kwargs,
-            is_first_iteration=not generation_config.is_assistant,
-        )
-  ```
-
-- transformers/src/transformers/generation/utils.py  
-  class GenerationMixin  
-  `def _prefill()`
-  ```python
-  if generation_config.prefill_chunk_size is None:
-            model_inputs = self.prepare_inputs_for_generation(
+    - transformers/src/transformers/generation/utils.py  
+      class GenerationMixin  
+      `def _sample()`
+      ```python
+      outputs = self._prefill(
                 input_ids,
-                next_sequence_length=next_sequence_length,
-                is_first_iteration=is_first_iteration,
-                **model_kwargs,
+                generation_config,
+                model_kwargs,
+                is_first_iteration=not generation_config.is_assistant,
             )
-            return self(**model_inputs, return_dict=True)
-  ```
-
-- torch/nn/modules/module.py  
-  class Module  
-  `def _wrapped_call_impl()`  
-  `return self._call_impl(*args, **kwargs)`
-
-
-- torch/nn/modules/module.py  
-  class Module  
-  `def _call_impl()`  
-  `return forward_call(*args, **kwargs)`
-
-- transformers/utils/generic.py  
-  `def can_return_tuple()`  
-  `def wrapper()`  
-  `output = func(self, *args, **kwargs)`
-
-- transformers/models/qwen3_vl/modeling_qwen3_vl.py  
-  class Qwen3VLForConditionalGeneration  
-  `def forword()`
+      ```
+    
+    - transformers/src/transformers/generation/utils.py  
+      class GenerationMixin  
+      `def _prefill()`
+      ```python
+      if generation_config.prefill_chunk_size is None:
+                model_inputs = self.prepare_inputs_for_generation(
+                    input_ids,
+                    next_sequence_length=next_sequence_length,
+                    is_first_iteration=is_first_iteration,
+                    **model_kwargs,
+                )
+                return self(**model_inputs, return_dict=True)
+      ```
+    
+    - torch/nn/modules/module.py  
+      class Module  
+      `def _wrapped_call_impl()`  
+      `return self._call_impl(*args, **kwargs)`
+    
+    
+    - torch/nn/modules/module.py  
+      class Module  
+      `def _call_impl()`  
+      `return forward_call(*args, **kwargs)`
+    
+    - transformers/utils/generic.py  
+      `def can_return_tuple()`  
+      `def wrapper()`  
+      `output = func(self, *args, **kwargs)`
+    
+    - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+      class Qwen3VLForConditionalGeneration  
+      `def forword()`
