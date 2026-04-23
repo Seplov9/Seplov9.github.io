@@ -583,3 +583,54 @@ modeling_qwen3_vl.py
     - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
       class Qwen3VLForConditionalGeneration  
       `def forword()`
+      ```python
+      outputs = self.model(
+            input_ids=input_ids,
+            pixel_values=pixel_values,
+            pixel_values_videos=pixel_values_videos,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            mm_token_type_ids=mm_token_type_ids,
+            **kwargs,
+        )
+      ```
+
+    - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+      class Qwen3VLModel  
+      `def forword()`
+      `self.get_image_features()`
+      `self.get_video_features()`
+
+    - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+      class Qwen3VLModel  
+      `def get_image_features()`
+      ```python
+      vision_output: BaseModelOutputWithDeepstackFeatures = self.visual(
+            pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
+        )
+      ```
+ 
+        - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+          class Qwen3VLVisionModel  
+          `def forward()`  
+          `return`
+
+    - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+      class Qwen3VLModel  
+      `def forword()`
+      ```python
+      outputs = self.language_model(
+            input_ids=None,
+            position_ids=position_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            visual_pos_masks=visual_pos_masks,
+            deepstack_visual_embeds=deepstack_visual_embeds,
+            **kwargs,
+        )
+      ```
