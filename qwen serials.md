@@ -49,6 +49,11 @@ processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 ## video_processing
 
 ## image_processing
+image_processing_qwen2_vl.py  
+class Qwen2VLImageProcessor  
+def _preprocess()  
+<img width="2999" height="2175" alt="image" src="https://github.com/user-attachments/assets/3e9688fd-df8f-4b02-94bf-52728980e597" />
+
 
 # qwen-3vl
 ## modeling_qwen3_vl.py
