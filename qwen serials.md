@@ -2,9 +2,9 @@
 transformers库  
 transformers/src/transformers/processing_utils.py(class ProcessorMixin(PushToHubMixin))  
 transformers/src/transformers/generation/utils.py(class GenerationMixin(ContinuousMixin))
+transformers/src/transformers/modeling_utils.py(class PreTrainedModel)  
 transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py  
-transformers/src/transformers/modeling_utils.py  
 transformers/src/transformers/models/qwen2_vl(v5.3.0 class Qwen2VLImageProcessorFast())  
 transformers/src/transformers/models/auto/processing_auto.py  
 transformers/src/transformers/models/auto/image_processing_auto.py  
