@@ -380,7 +380,7 @@ image_processing_qwen2_vl.py
 <img width="1102" height="308" alt="image" src="https://github.com/user-attachments/assets/a06d4ba7-df56-4a4e-a75d-3790a95c427e" />
 
 video_processing_qwen3_vl.py
-<img width="1116" height="111" alt="8bd1733fa7c0df3f55b0e99ad19593df" src="https://github.com/user-attachments/assets/701907de-ca63-44e4-b49c-17a69b8c01fd" />
+<img width="1116" height="154" alt="image" src="https://github.com/user-attachments/assets/dcac9195-1b6a-4d32-bab4-aa5db43aa873" />
 
 modeling_qwen3_vl.py
 <img width="1024" height="153" alt="image" src="https://github.com/user-attachments/assets/b6a48b18-0e76-4915-81e5-54f21a02c347" />
