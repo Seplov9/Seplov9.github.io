@@ -58,7 +58,7 @@ processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-8B-Instruct")
 ## modeling
 ### transformers/models/qwen3_vl/modeling_qwen3_vl.py
 - 类结构
-<img width="2214" height="1334" alt="image" src="https://github.com/user-attachments/assets/6d780db0-9b1c-4f8b-8b65-4ef1eeea59fa" />
+<img width="2673" height="1945" alt="image" src="https://github.com/user-attachments/assets/07fff3fc-3e17-41da-901f-9276b2054ea3" />
 
 - Attention
 <img width="803" height="746" alt="image" src="https://github.com/user-attachments/assets/d04db389-e74a-4d4f-9e9a-293064b9f634" />
