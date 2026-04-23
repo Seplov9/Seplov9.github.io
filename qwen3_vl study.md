@@ -407,7 +407,7 @@ modeling_qwen3_vl.py
       `def __call__()`
       ```python
       if images is not None:
-                image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
+          image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
       ```
 
         - transformers/image_processing_utils.py  
@@ -415,8 +415,8 @@ modeling_qwen3_vl.py
           `def __call__()`
           ```python
           def __call__(self, images: ImageInput, *args, **kwargs: Unpack[ImagesKwargs]) -> BatchFeature:
-                """Preprocess an image or a batch of images."""
-                return self.preprocess(images, *args, **kwargs)
+              """Preprocess an image or a batch of images."""
+              return self.preprocess(images, *args, **kwargs)
           ```
     
         - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
@@ -424,12 +424,12 @@ modeling_qwen3_vl.py
           `def preprocess()`  
           ```python
           @auto_docstring
-            def preprocess(
-                self,
-                images: ImageInput,
-                **kwargs: Unpack[Qwen2VLImageProcessorKwargs],
-            ) -> BatchFeature:
-                return super().preprocess(images, **kwargs)
+          def preprocess(
+              self,
+              images: ImageInput,
+              **kwargs: Unpack[Qwen2VLImageProcessorKwargs],
+          ) -> BatchFeature:
+              return super().preprocess(images, **kwargs)
           ```
         
         - transformers/image_processing_utils.py  
@@ -447,21 +447,14 @@ modeling_qwen3_vl.py
           `def _prepare_image_like_inputs()`
           ```python
           def _preprocess_image_like_inputs(
-                self,
-                images: ImageInput,
-                *args,
-                **kwargs: Unpack[ImagesKwargs],
-            ) -> BatchFeature:
-                """
-                Preprocess image-like inputs by preparing them and dispatching to `_preprocess`.
-        
-                This method first calls `_prepare_image_like_inputs` to convert raw inputs into the backend's
-                format, then calls `_preprocess` for the actual batch processing. Override this method in
-                model-specific processors that need to handle multiple image-like input types (e.g., images
-                and segmentation maps) or need custom orchestration of the preprocessing pipeline.
-                """
-                images = self._prepare_image_like_inputs(images, **kwargs)
-                return self._preprocess(images, *args, **kwargs)
+              self,
+              images: ImageInput,
+              *args,
+              **kwargs: Unpack[ImagesKwargs],
+          ) -> BatchFeature:
+
+              images = self._prepare_image_like_inputs(images, **kwargs)
+              return self._preprocess(images, *args, **kwargs)
           ```
         
         - transformers/models/qwen2_vl/image_processing_qwen2_vl.py  
@@ -474,7 +467,7 @@ modeling_qwen3_vl.py
       `def __call__()`
       ```python
       if videos is not None:
-                videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
+          videos_inputs = self.video_processor(videos=videos, **output_kwargs["videos_kwargs"])
       ```
 
       - transformers/video_processing_utils.py  
@@ -528,14 +521,14 @@ modeling_qwen3_vl.py
   decoding_method = getattr(type(self), GENERATION_MODES_MAPPING[generation_mode])  # <function GenerationMixin._sample at 0x7ff7a5d9be20>
   
   result = decoding_method(
-            self,
-            input_ids,
-            logits_processor=prepared_logits_processor,
-            stopping_criteria=prepared_stopping_criteria,
-            generation_config=generation_config,
-            **generation_mode_kwargs,
-            **model_kwargs,
-        )
+      self,
+      input_ids,
+      logits_processor=prepared_logits_processor,
+      stopping_criteria=prepared_stopping_criteria,
+      generation_config=generation_config,
+      **generation_mode_kwargs,
+      **model_kwargs,
+  )
   ```
 
     - transformers/src/transformers/generation/utils.py  
@@ -543,11 +536,11 @@ modeling_qwen3_vl.py
       `def _sample()`
       ```python
       outputs = self._prefill(
-                input_ids,
-                generation_config,
-                model_kwargs,
-                is_first_iteration=not generation_config.is_assistant,
-            )
+          input_ids,
+          generation_config,
+          model_kwargs,
+          is_first_iteration=not generation_config.is_assistant,
+      )
       ```
     
     - transformers/src/transformers/generation/utils.py  
@@ -555,13 +548,13 @@ modeling_qwen3_vl.py
       `def _prefill()`
       ```python
       if generation_config.prefill_chunk_size is None:
-                model_inputs = self.prepare_inputs_for_generation(
-                    input_ids,
-                    next_sequence_length=next_sequence_length,
-                    is_first_iteration=is_first_iteration,
-                    **model_kwargs,
-                )
-                return self(**model_inputs, return_dict=True)
+            model_inputs = self.prepare_inputs_for_generation(
+                input_ids,
+                next_sequence_length=next_sequence_length,
+                is_first_iteration=is_first_iteration,
+                **model_kwargs,
+            )
+            return self(**model_inputs, return_dict=True)
       ```
     
     - torch/nn/modules/module.py  
@@ -585,18 +578,18 @@ modeling_qwen3_vl.py
       `def forword()`
       ```python
       outputs = self.model(
-            input_ids=input_ids,
-            pixel_values=pixel_values,
-            pixel_values_videos=pixel_values_videos,
-            image_grid_thw=image_grid_thw,
-            video_grid_thw=video_grid_thw,
-            position_ids=position_ids,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            mm_token_type_ids=mm_token_type_ids,
-            **kwargs,
-        )
+          input_ids=input_ids,
+          pixel_values=pixel_values,
+          pixel_values_videos=pixel_values_videos,
+          image_grid_thw=image_grid_thw,
+          video_grid_thw=video_grid_thw,
+          position_ids=position_ids,
+          attention_mask=attention_mask,
+          past_key_values=past_key_values,
+          inputs_embeds=inputs_embeds,
+          mm_token_type_ids=mm_token_type_ids,
+          **kwargs,
+      )
       ```
 
     - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
@@ -610,8 +603,8 @@ modeling_qwen3_vl.py
       `def get_image_features()`
       ```python
       vision_output: BaseModelOutputWithDeepstackFeatures = self.visual(
-            pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
-        )
+          pixel_values, grid_thw=image_grid_thw, return_dict=True, **kwargs
+      )
       ```
  
         - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
@@ -624,13 +617,33 @@ modeling_qwen3_vl.py
       `def forword()`
       ```python
       outputs = self.language_model(
-            input_ids=None,
-            position_ids=position_ids,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            visual_pos_masks=visual_pos_masks,
-            deepstack_visual_embeds=deepstack_visual_embeds,
-            **kwargs,
-        )
+          input_ids=None,
+          position_ids=position_ids,
+          attention_mask=attention_mask,
+          past_key_values=past_key_values,
+          inputs_embeds=inputs_embeds,
+          visual_pos_masks=visual_pos_masks,
+          deepstack_visual_embeds=deepstack_visual_embeds,
+          **kwargs,
+      )
       ```
+
+        - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+          class Qwen3VLTextModel  
+          `def forword()`  
+          `return`
+
+    - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+      class Qwen3VLForConditionalGeneration    
+      `def forword()`  
+      `return`
+
+- qwen.py  
+  ```python
+  generated_ids_trimmed = [
+      out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+  ]
+  output_text = processor.batch_decode(
+      generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+  )
+  ```
