@@ -394,12 +394,12 @@ modeling_qwen3_vl.py
   `def apply_chat_template()`
   ```python
   out = self(
-                text=prompt,
-                images=batch_images if images_exist else None,
-                videos=batch_videos if videos_exist else None,
-                audio=batch_audios if batch_audios else None,
-                **processor_kwargs,
-            )
+      text=prompt,
+      images=batch_images if images_exist else None,
+      videos=batch_videos if videos_exist else None,
+      audio=batch_audios if batch_audios else None,
+      **processor_kwargs,
+  )
   ```
   
     - transformers/models/qwen3_vl/processing_qwen3_vl.py  
