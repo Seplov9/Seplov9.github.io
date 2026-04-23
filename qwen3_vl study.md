@@ -520,7 +520,7 @@ modeling_qwen3_vl.py
   model = Qwen3VLForConditionalGeneration.from_pretrained("Qwen/Qwen3-VL-2B-Instruct", dtype="auto", device_map="auto")  
   generated_ids = model.generate(**inputs, max_new_tokens=128)
 
-- transformers/src/transformers/generation/utils.py
+- transformers/src/transformers/generation/utils.py  
   class GenerationMixin  
   `def generate()`
   ```python
