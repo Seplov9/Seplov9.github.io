@@ -375,6 +375,10 @@ print(output_text)
 ```
 
 ## Path
+<img width="1024" height="153" alt="image" src="https://github.com/user-attachments/assets/b6a48b18-0e76-4915-81e5-54f21a02c347" />
+
+
+
 - qwen.py  
   processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")  
   `inputs = processor.apply_chat_template()`  
