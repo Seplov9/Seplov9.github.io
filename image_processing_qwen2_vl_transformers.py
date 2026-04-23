@@ -345,7 +345,7 @@ class Qwen2VLImageProcessor(TorchvisionBackend):
             # image * 2: patches.shape: [2, 1, 43, 64, 2, 2, 3, 2, 16, 16]
             
             # 8. 展平 (Flatten):
-            # 最终维度: [B, (grid_t * grid_h * grid_w), (C * T_patch * H_patch * W_patch)]
+            # 最终维度: [B, (grid_t * grid_h * grid_w), (C * T_patch_size * patch_size * patch_size)]
             flatten_patches = patches.reshape(
                 batch_size,
                 grid_t * grid_h * grid_w,
