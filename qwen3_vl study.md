@@ -507,7 +507,7 @@ print(output_text)
   `inputs = inputs.to(model.device)`
 
 - qwen.py
-  model = Qwen3VLForConditionalGeneration.from_pretrained("Qwen/Qwen3-VL-2B-Instruct", dtype="auto", device_map="auto")
+  model = Qwen3VLForConditionalGeneration.from_pretrained("Qwen/Qwen3-VL-2B-Instruct", dtype="auto", device_map="auto")  
   generated_ids = model.generate(**inputs, max_new_tokens=128)
 
 - transformers/src/transformers/generation/utils.py
@@ -528,7 +528,7 @@ print(output_text)
         )
   ```
 
-- transformers/src/transformers/generation/utils.py
+- transformers/src/transformers/generation/utils.py  
   class GenerationMixin  
   `def _sample()`
   ```python
@@ -540,7 +540,7 @@ print(output_text)
         )
   ```
 
-- transformers/src/transformers/generation/utils.py
+- transformers/src/transformers/generation/utils.py  
   class GenerationMixin  
   `def _prefill()`
   ```python
@@ -556,20 +556,20 @@ print(output_text)
 
 - torch/nn/modules/module.py  
   class Module  
-  `def _wrapped_call_impl()`
+  `def _wrapped_call_impl()`  
   `return self._call_impl(*args, **kwargs)`
 
 
 - torch/nn/modules/module.py  
   class Module  
-  `def _call_impl()`
+  `def _call_impl()`  
   `return forward_call(*args, **kwargs)`
 
-- transformers/utils/generic.py
-  `def can_return_tuple()`
-  `def wrapper()`
+- transformers/utils/generic.py  
+  `def can_return_tuple()`  
+  `def wrapper()`  
   `output = func(self, *args, **kwargs)`
 
-- transformers/models/qwen3_vl/modeling_qwen3_vl.py
-  class Qwen3VLForConditionalGeneration
+- transformers/models/qwen3_vl/modeling_qwen3_vl.py  
+  class Qwen3VLForConditionalGeneration  
   `def forword()`
