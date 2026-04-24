@@ -557,6 +557,10 @@ modeling_qwen3_vl.py
             )
             return self(**model_inputs, return_dict=True)
       ```
+
+        - transformers/src/transformers/generation/utils.py  
+          class GenerationMixin  
+          `def prepare_inputs_for_generation()`
     
     - torch/nn/modules/module.py  
       class Module  
