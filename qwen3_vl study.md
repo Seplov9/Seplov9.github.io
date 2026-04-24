@@ -595,8 +595,8 @@ modeling_qwen3_vl.py
 
     - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
       class Qwen3VLModel  
-      `def forword()`
-      `self.get_image_features()`
+      `def forword()`  
+      `self.get_image_features()`  
       `self.get_video_features()`
 
     - transformers/models/qwen3_vl/modeling_qwen3_vl.py  
