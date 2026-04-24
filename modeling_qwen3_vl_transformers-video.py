@@ -315,7 +315,7 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.register_buffer("original_inv_freq", inv_freq.clone(), persistent=False)
 
-        self.mrope_section = config.rope_parameters.get("mrope_section", [24, 20, 20])
+        self.mrope_section = config.rope_parameters.get("mrope_section", [24, 20, 20])  # mrope_section = [24, 20, 20]
 
     @staticmethod
     def compute_default_rope_parameters(
@@ -336,8 +336,8 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
             Tuple of (`torch.Tensor`, `float`), containing the inverse frequencies for the RoPE embeddings and the
             post-processing scaling factor applied to the computed cos/sin (unused in this type of RoPE).
         """
-        base = config.rope_parameters["rope_theta"]
-        dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+        base = config.rope_parameters["rope_theta"]  # 5000000
+        dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads  # 4096 / 32 = 128
 
         attention_factor = 1.0  # Unused in this type of RoPE
 
@@ -352,14 +352,42 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
     def forward(self, x, position_ids):
         # In contrast to other models, Qwen3VL has different position ids for the grids
         # So we expand the inv_freq to shape (3, ...)
+        
+        '''
+        (Pdb) position_ids[..., :100]
+        tensor([[[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 10, 10, 10, 10, 10, 10,
+                  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+                  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+                  10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+                  10, 10, 10, 10, 10, 10, 10, 10, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                  29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29]],
+        
+                [[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 10, 10, 10, 10, 10, 10,
+                  10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12,
+                  12, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 13, 13,
+                  13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15,
+                  15, 15, 15, 15, 15, 15, 15, 15, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                  29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30]],
+        
+                [[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16,
+                  17, 18, 19, 20, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 10, 11,
+                  12, 13, 14, 15, 16, 17, 18, 19, 20, 10, 11, 12, 13, 14, 15, 16, 17,
+                  18, 19, 20, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 10, 11, 12,
+                  13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+                  30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 29, 30, 31, 32, 33]]],
+               device='cuda:0')
+        '''
+        # position_ids.shape (3, bs, positions) : [3, 1, 13430]
         if position_ids.ndim == 2:
             position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
-        inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)
-        position_ids_expanded = position_ids[:, :, None, :].float()  # shape (3, bs, 1, positions)
+
+        # self.inv_freq.shape = [64]
+        inv_freq_expanded = self.inv_freq[None, None, :, None].float().expand(3, position_ids.shape[1], -1, 1)  # [3, 1, 64, 1]
+        position_ids_expanded = position_ids[:, :, None, :].float()  # shape (3, bs, 1, positions) : [3, 1, 1, 13430]
 
         device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
         with maybe_autocast(device_type=device_type, enabled=False):  # Force float32
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(2, 3)
+            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(2, 3)  # [3, 1, 64, 1] @ [3, 1, 1, 13430] -> [3, 1, 64, 13430] -> transpose -> [3, 1, 13430, 64] <---> (3, bs, seq_len, head_dim // 2)
             freqs = self.apply_interleaved_mrope(freqs, self.mrope_section)
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos() * self.attention_scaling
@@ -377,8 +405,10 @@ class Qwen3VLTextRotaryEmbedding(nn.Module):
         returns:
             x_t: (bs, seq_len, head_dim // 2)
         """
-        freqs_t = freqs[0]  # just overwrite the first dimension T
-        for dim, offset in enumerate((1, 2), start=1):  # H, W
+        # freqs.shape = [3, 1, 13430, 64] <---> (3, bs, seq_len, head_dim // 2)
+        # mrope_section = [24, 20, 20]
+        freqs_t = freqs[0]  # just overwrite the first dimension T, shape = [1, 13430, 64]
+        for dim, offset in enumerate((1, 2), start=1):  # H, W = (1, 1) -> (2, 2)
             length = mrope_section[dim] * 3
             idx = slice(offset, length, 3)
             freqs_t[..., idx] = freqs[dim, ..., idx]
