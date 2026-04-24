@@ -1,8 +1,11 @@
-
-def prepare_inputs_for_generation()
-
 # video
 
+def _prepare_position_ids_for_generation()
+(Pdb) position_ids.shape
+torch.Size([1, 13430])
+
+
+def prepare_inputs_for_generation()
 (Pdb) pp model_inputs
 {'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]], device='cuda:0'),
  'image_grid_thw': None,
