@@ -381,6 +381,22 @@ print(output_text)
 `def prepare_inputs_for_generation`
 
 ```python
+
+# video
+
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "video",
+                "video": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-VL/space_woaudio.mp4",
+            },
+            {"type": "text", "text": "Describe this video."},
+        ],
+    }
+]
+
 (Pdb) pp model_inputs
 {'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]], device='cuda:0'),
  'image_grid_thw': None,
@@ -419,13 +435,11 @@ print(output_text)
 #
 # 2. 缓存与位置信息:
 #    - "past_key_values": 存储 KV 缓存的对象 (Cache 类)，用于加速生成，避免重复计算
-#    - "position_ids": 对应当前 input_ids 的位置索引 [batch, seq_len]
-#        * 会根据 sequence_length 自动切片，确保与 input_ids 长度一致
+#    - "position_ids": 对应当前 input_ids 的位置索引 [batch, seq_len]，会根据 sequence_length 自动切片，确保与 input_ids 长度一致
 #    - "cache_position": (部分模型需要) 指明当前输入在 KV Cache 中的绝对偏移量
 #
 # 3. 注意力控制:
-#    - "attention_mask": 控制模型关注哪些 token。在启用 torch.compile 时，会被
-#        create_masks_for_generate 转换为 4D 掩码以支持高性能推理
+#    - "attention_mask": 控制模型关注哪些 token。在启用 torch.compile 时，会被create_masks_for_generate 转换为 4D 掩码以支持高性能推理
 #
 # 4. Qwen3-VL 多模态透传参数 (由 **kwargs 传入并保留):
 #    - "pixel_values": 原始图像张量 (经过 Preprocessor 处理后的维度)
@@ -441,11 +455,8 @@ print(output_text)
 # ------------------------------------------------------------------------------
 # 1. 在【推理/生成模式】下 (model.generate):
 #    - 默认行为: labels 通常为 None。
-#    - 原因: 生成模式属于无监督/自回归预测，模型根据上文预测下一个 token，不需要
-#      真实标签（labels）来计算 Loss。
-#    - 源码表现: 你会发现在 GenerationMixin 的代码中，labels 被列入了 
-#      `kwargs_to_avoid_forwarding` 元组中，这意味着 generate 会故意拦截并
-#      丢弃 labels，不将其传给 prepare_inputs_for_generation。
+#    - 原因: 生成模式属于无监督/自回归预测，模型根据上文预测下一个 token，不需要真实标签（labels）来计算 Loss。
+#    - 源码表现: 你会发现在 GenerationMixin 的代码中，labels 被列入了 `kwargs_to_avoid_forwarding` 元组中，这意味着 generate 会故意拦截并丢弃 labels，不将其传给 prepare_inputs_for_generation。
 #      kwargs_to_avoid_forwarding = ("labels", "next_sequence_length")
 #
 # 2. 在【训练模式】下 (model.forward):
@@ -457,13 +468,12 @@ print(output_text)
 #          对应的 labels 会被设置为 -100 (PyTorch CrossEntropyLoss 的默认忽略索引)。
 #
 # 3. 特殊情况 (Teacher Forcing):
-#    - 如果你在调用 generate 时强行传入了 labels，它通常只在首轮 (Prefill) 计算 
-#      Loss 时有用。但在标准的 HuggingFace generate 流程中，即使传入也会被忽略，
-#      以保证推理逻辑的纯粹性。
+#    - 如果你在调用 generate 时强行传入了 labels，它通常只在首轮 (Prefill) 计算 Loss 时有用。但在标准的 HuggingFace generate 流程中，即使传入也会被忽略，以保证推理逻辑的纯粹性。
 # ==============================================================================
 # inputs_embeds计算逻辑:
 # ------------------------------------------------------------------------------
 # model_inputs中inputs_embeds为空
+#
 # class GenerationMixin forward()
 # -> class Qwen3VLForConditionalGeneration forward()
 # -> class Qwen3VLModel forward()
