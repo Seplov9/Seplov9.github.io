@@ -384,6 +384,7 @@ video_processing_qwen3_vl.py
 
 modeling_qwen3_vl.py
 <img width="1024" height="153" alt="image" src="https://github.com/user-attachments/assets/b6a48b18-0e76-4915-81e5-54f21a02c347" />
+<img width="1019" height="394" alt="image" src="https://github.com/user-attachments/assets/fbf055c5-aa87-4b3f-8aca-fd2598dbd59d" />
 
 - qwen.py  
   processor = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-2B-Instruct")  
