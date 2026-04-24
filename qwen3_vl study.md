@@ -374,6 +374,108 @@ output_text = processor.batch_decode(
 print(output_text)
 ```
 
+## class GenerationMixin
+
+### model_inputs
+
+`def prepare_inputs_for_generation`
+
+```python
+(Pdb) pp model_inputs
+{'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]], device='cuda:0'),
+ 'image_grid_thw': None,
+ 'input_ids': tensor([[151644,    872,    198,  ..., 151644,  77091,    198]],
+       device='cuda:0'),
+ 'logits_to_keep': 1,
+ 'mm_token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0]], device='cuda:0'),
+ 'past_key_values': DynamicCache(layers=[DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer, DynamicLayer]),
+ 'pixel_values': None,
+ 'pixel_values_videos': tensor([[-1.0000, -1.0000, -1.0000,  ..., -0.5686, -0.5608, -0.5608],
+        [-1.0000, -1.0000, -1.0000,  ..., -0.5373, -0.5451, -0.5451],
+        [-1.0000, -1.0000, -1.0000,  ..., -0.9373, -0.9373, -0.9451],
+        ...,
+        [-1.0000, -1.0000, -1.0000,  ..., -1.0000, -1.0000, -1.0000],
+        [-1.0000, -1.0000, -1.0000,  ..., -1.0000, -1.0000, -1.0000],
+        [-1.0000, -1.0000, -1.0000,  ..., -1.0000, -1.0000, -1.0000]],
+       device='cuda:0'),
+ 'position_ids': tensor([[[    0,     1,     2,  ..., 13427, 13428, 13429]],
+
+        [[    0,     1,     2,  ...,  3637,  3638,  3639]],
+
+        [[    0,     1,     2,  ...,  3637,  3638,  3639]],
+
+        [[    0,     1,     2,  ...,  3637,  3638,  3639]]], device='cuda:0'),
+ 'use_cache': True,
+ 'video_grid_thw': tensor([[178,  12,  22]], device='cuda:0')}
+
+# ==============================================================================
+# model_inputs 字典内容详解 (Qwen3-VL 运行时上下文):
+# ------------------------------------------------------------------------------
+# 1. 核心序列输入:
+#    - "input_ids": 
+#        * 首轮: 包含 Prompt 的完整 Tensor [batch, seq_len]
+#        * 迭代: 仅包含最新生成的 1 个 Token [batch, 1] (由 next_sequence_length 切片得到)
+#    - "inputs_embeds": (仅首轮) 如果传入了图像/视频特征，该项存在，此时 input_ids 为 None
+#
+# 2. 缓存与位置信息:
+#    - "past_key_values": 存储 KV 缓存的对象 (Cache 类)，用于加速生成，避免重复计算
+#    - "position_ids": 对应当前 input_ids 的位置索引 [batch, seq_len]
+#        * 会根据 sequence_length 自动切片，确保与 input_ids 长度一致
+#    - "cache_position": (部分模型需要) 指明当前输入在 KV Cache 中的绝对偏移量
+#
+# 3. 注意力控制:
+#    - "attention_mask": 控制模型关注哪些 token。在启用 torch.compile 时，会被
+#        create_masks_for_generate 转换为 4D 掩码以支持高性能推理
+#
+# 4. Qwen3-VL 多模态透传参数 (由 **kwargs 传入并保留):
+#    - "pixel_values": 原始图像张量 (经过 Preprocessor 处理后的维度)
+#    - "pixel_values_videos": 视频张量 (如果有视频输入)
+#    - "image_grid_thw": 图像的 [Temporal, Height, Width] 结构信息，用于 2D-RoPE 计算
+#    - "video_grid_thw": 视频的结构信息
+#    - "mm_token_type_ids": 多模态 token 类型标识 (用于区分文本/图像/视频 token)
+#
+# 5. 其他配置:
+#    - "use_cache": 布尔值，标识是否在 forward 中返回新的 past_key_values
+# ==============================================================================
+# forward 函数中 labels 参数的来源与计算逻辑:
+# ------------------------------------------------------------------------------
+# 1. 在【推理/生成模式】下 (model.generate):
+#    - 默认行为: labels 通常为 None。
+#    - 原因: 生成模式属于无监督/自回归预测，模型根据上文预测下一个 token，不需要
+#      真实标签（labels）来计算 Loss。
+#    - 源码表现: 你会发现在 GenerationMixin 的代码中，labels 被列入了 
+#      `kwargs_to_avoid_forwarding` 元组中，这意味着 generate 会故意拦截并
+#      丢弃 labels，不将其传给 prepare_inputs_for_generation。
+#      kwargs_to_avoid_forwarding = ("labels", "next_sequence_length")
+#
+# 2. 在【训练模式】下 (model.forward):
+#    - 来源: 由 DataCollator（数据整理器）从训练数据集中计算得出。
+#    - 计算过程: 
+#        * 通常将 input_ids 向右移动一位（Shift Right）。
+#        * 文本部分: labels 等于 input_ids。
+#        * 图像/Padding 部分: 为了不让模型对图片像素或填充位计算 Loss，这些位置
+#          对应的 labels 会被设置为 -100 (PyTorch CrossEntropyLoss 的默认忽略索引)。
+#
+# 3. 特殊情况 (Teacher Forcing):
+#    - 如果你在调用 generate 时强行传入了 labels，它通常只在首轮 (Prefill) 计算 
+#      Loss 时有用。但在标准的 HuggingFace generate 流程中，即使传入也会被忽略，
+#      以保证推理逻辑的纯粹性。
+# ==============================================================================
+# inputs_embeds计算逻辑:
+# ------------------------------------------------------------------------------
+# model_inputs中inputs_embeds为空
+# class GenerationMixin forward()
+# -> class Qwen3VLForConditionalGeneration forward()
+# -> class Qwen3VLModel forward()
+#     if (input_ids is None) ^ (inputs_embeds is not None):
+#         raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+#
+#     if inputs_embeds is None:
+#         inputs_embeds = self.get_input_embeddings()(input_ids)
+# -> class Qwen3VLTextModel forward()
+# ==============================================================================
+```
+
 ## Path
 
 image_processing_qwen2_vl.py
