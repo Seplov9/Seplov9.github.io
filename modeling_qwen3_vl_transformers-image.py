@@ -968,7 +968,7 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
         # W维度存储行，每行有64个元素，依次是64个4, 64个5, 64个6,..., 64个46
         # H维度存储列，一共有43行，从4到67，重复43次
         # 也就是说，对于图片token，最后一个是[4, 46, 67]
-        # 前4个token和后10个token为文字，三个维度值均为[0, 1, 2, 3],[ 68, 69, 70, 71, 72, 73, 74, 75, 76, 77]
+        # 前4个token和后10个token为文字，三个维度值均为[0, 1, 2, 3], [68, 69, 70, 71, 72, 73, 74, 75, 76, 77]
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
@@ -1394,6 +1394,18 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             visual_pos_masks = video_mask
             deepstack_visual_embeds = deepstack_video_embeds
 
+        '''
+        (Pdb) position_ids.shape
+        torch.Size([4, 1, 2766])
+        (Pdb) position_ids
+        tensor([[[   0,    1,    2,  ..., 2763, 2764, 2765]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]]], device='cuda:0')
+        '''
         if position_ids is None:
             position_ids = self.compute_3d_position_ids(
                 input_ids=input_ids,
