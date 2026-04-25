@@ -1760,6 +1760,21 @@ class Qwen3VLForConditionalGeneration(Qwen3VLPreTrainedModel, GenerationMixin):
 
     def _prepare_position_ids_for_generation(self, inputs_tensor, model_kwargs):
         # Overwritten -- requires 3D position ids
+        '''
+        (Pdb) pp model_kwargs
+        (Pdb) pp model_kwargs
+        {'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]], device='cuda:0'),
+         'image_grid_thw': tensor([[  1,  86, 128]], device='cuda:0'),
+         'mm_token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0]], device='cuda:0'),
+         'pixel_values': tensor([[ 0.4196,  0.4196,  0.4275,  ...,  0.5922,  0.5922,  0.5922],
+                [ 0.4667,  0.4667,  0.4667,  ...,  0.6235,  0.6235,  0.6235],
+                [ 0.4667,  0.4667,  0.4745,  ...,  0.6078,  0.6157,  0.6157],
+                ...,
+                [-0.1529, -0.1608, -0.1608,  ..., -0.3255, -0.3176, -0.3176],
+                [-0.2078, -0.2078, -0.2078,  ..., -0.3333, -0.3412, -0.3490],
+                [-0.1765, -0.2000, -0.2235,  ..., -0.4196, -0.4275, -0.4353]],
+               device='cuda:0')}
+       '''
 
         text_positions = super()._prepare_position_ids_for_generation(inputs_tensor, model_kwargs)
         '''
