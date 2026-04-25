@@ -125,13 +125,13 @@ class Qwen3VLVisionRotaryEmbedding(nn.Module):
 
     def __init__(self, dim: int, theta: float = 10000.0) -> None:
         super().__init__()
-        self.dim = dim      # 嵌入维度（通常为 head_dim 的一部分），head_dim //2 = 32
+        self.dim = dim      # 嵌入维度（通常为 head_dim 的一部分）
         self.theta = theta  # 基数（Base），用于控制不同维度的旋转频率
 
         # 计算逆频率向量 (Inverse Frequency)
         # torch.arange(0, dim, 2): 生成 [0, 2, 4, ..., dim-2]，维度为 (dim/2,)
         # 计算公式: 1.0 / (theta ** (i / dim))
-        # inv_freq 维度: [dim / 2], [16]
+        # inv_freq 维度: [dim / 2]
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         
         # 将 inv_freq 注册为 buffer，不会被视为模型参数（不更新梯度）
@@ -139,13 +139,13 @@ class Qwen3VLVisionRotaryEmbedding(nn.Module):
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
     def forward(self, seqlen: int) -> torch.Tensor:
-        # 生成位置索引序列: [0, 1, 2, ..., seqlen-1], seqlen = 128(image)
+        # 生成位置索引序列: [0, 1, 2, ..., seqlen-1]
         # seq 维度: [seqlen]
         seq = torch.arange(seqlen, device=self.inv_freq.device, dtype=self.inv_freq.dtype)
         
         # 计算外积 (Outer Product)
         # seq (seqlen,) 与 inv_freq (dim/2,) 相乘
-        # freqs 维度: [seqlen, dim / 2], [128, 16](image)
+        # freqs 维度: [seqlen, dim / 2]
         freqs = torch.outer(seq, self.inv_freq)
         
         # 返回计算好的频率矩阵，后续通常会配合 sin/cos 使用
