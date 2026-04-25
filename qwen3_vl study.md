@@ -215,18 +215,33 @@ inputs = processor.apply_chat_template(
     return_tensors="pt"
 )
 inputs = inputs.to(model.device)
-print(inputs)
+
+raw_prompt = processor.apply_chat_template(
+    messages, 
+    tokenize=False, 
+    add_generation_prompt=True
+)
 
 '''
-{'input_ids': tensor([[151644,    872,    198,  ..., 151644,  77091,    198]]), 'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]]), 'mm_token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0]]), 'pixel_values': tensor([[ 0.4196,  0.4196,  0.4275,  ...,  0.5922,  0.5922,  0.5922],
-        [ 0.4667,  0.4667,  0.4667,  ...,  0.6235,  0.6235,  0.6235],
-        [ 0.4667,  0.4667,  0.4745,  ...,  0.6078,  0.6157,  0.6157],
-        ...,
-        [-0.1529, -0.1608, -0.1608,  ..., -0.3255, -0.3176, -0.3176],
-        [-0.2078, -0.2078, -0.2078,  ..., -0.3333, -0.3412, -0.3490],
-        [-0.1765, -0.2000, -0.2235,  ..., -0.4196, -0.4275, -0.4353]]), 'image_grid_thw': tensor([[  1,  86, 128]])}
-tensor([[151644,    872,    198,  ...,   3691,    323,   4158]],
-       device='cuda:0')
+(Pdb) pp inputs
+{'attention_mask': tensor([[1, 1, 1,  ..., 1, 1, 1]], device='cuda:0'),  # 全1
+ 'image_grid_thw': tensor([[  1,  86, 128]], device='cuda:0'),
+ 'input_ids': tensor([[151644,    872,    198,  ..., 151644,  77091,    198]], device='cuda:0'),
+ 'mm_token_type_ids': tensor([[0, 0, 0,  ..., 0, 0, 0]], device='cuda:0'),
+ 'pixel_values': tensor([[ 0.4196,  0.4196,  0.4275,  ...,  0.5922,  0.5922,  0.5922],
+                        [ 0.4667,  0.4667,  0.4667,  ...,  0.6235,  0.6235,  0.6235],
+                        [ 0.4667,  0.4667,  0.4745,  ...,  0.6078,  0.6157,  0.6157],
+                        ...,
+                        [-0.1529, -0.1608, -0.1608,  ..., -0.3255, -0.3176, -0.3176],
+                        [-0.2078, -0.2078, -0.2078,  ..., -0.3333, -0.3412, -0.3490],
+                        [-0.1765, -0.2000, -0.2235,  ..., -0.4196, -0.4275, -0.4353]],
+                       device='cuda:0')}
+(Pdb) inputs.input_ids[0][:10]  /inputs['input_ids']
+tensor([151644,    872,    198, 151652, 151655, 151655, 151655, 151655, 151655, 151655], device='cuda:0')
+(Pdb) inputs.input_ids[0][-12:]
+tensor([151655, 151655, 151653,  74785,    419,   2168,     13, 151645,    198, 151644,  77091,    198], device='cuda:0')
+(Pdb) raw_prompt
+'<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n'
 '''
 
 # Inference: Generation of the output
@@ -355,12 +370,10 @@ raw_prompt = processor.apply_chat_template(
     tokenize=False, 
     add_generation_prompt=True
 )
-print(raw_prompt)
 
 '''
-<|im_start|>user
-<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>
-<|im_start|>assistant
+(Pdb) raw_prompt
+'<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n'
 '''
 
 # Inference: Generation of the output
