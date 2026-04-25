@@ -661,15 +661,16 @@ class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):
         self.post_init()
 
     def rot_pos_emb(self, grid_thw: torch.Tensor) -> torch.Tensor:
+        # grid_thw = [[1, 86, 128]], grid_thw.shape = [1, 3]
         merge_size = self.spatial_merge_size
         grid_thw_list = grid_thw.tolist()
 
-        max_hw = max(max(h, w) for _, h, w in grid_thw_list)
-        freq_table = self.rotary_pos_emb(max_hw)  # (max_hw, dim // 2)
+        max_hw = max(max(h, w) for _, h, w in grid_thw_list)  # 128
+        freq_table = self.rotary_pos_emb(max_hw)  # [128, 16] <---> (max_hw, dim // 2)
         device = freq_table.device
 
         total_tokens = sum(t * h * w for t, h, w in grid_thw_list)
-        pos_ids = torch.empty((total_tokens, 2), dtype=torch.long, device=device)
+        pos_ids = torch.empty((total_tokens, 2), dtype=torch.long, device=device)  # [11008, 2] <---> [ 1x86x128 , 2]
 
         offset = 0
         for num_frames, height, width in grid_thw_list:
@@ -696,9 +697,93 @@ class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):
             pos_ids[offset : offset + num_tokens] = coords
             offset += num_tokens
 
-        # pos_ids.shape = [11008, 2]
-        embeddings = freq_table[pos_ids]  # lookup rotary embeddings
+        '''
+        (Pdb) pos_ids.shape
+        torch.Size([11008, 2])
+        (Pdb) pos_ids[:10]
+        tensor([[0, 0],
+                [0, 1],
+                [1, 0],
+                [1, 1],
+                [0, 2],
+                [0, 3],
+                [1, 2],
+                [1, 3],
+                [0, 4],
+                [0, 5]], device='cuda:0')
+        (Pdb) pos_ids
+        tensor([[  0,   0],
+                [  0,   1],
+                [  1,   0],
+                ...,
+                [ 84, 127],
+                [ 85, 126],
+                [ 85, 127]], device='cuda:0')
+        (Pdb) freq_table.shape
+        torch.Size([128, 16])   
+        '''
+        embeddings = freq_table[pos_ids]  # lookup rotary embeddings, [11008, 2] -> [11008, 2, 16]
         embeddings = embeddings.flatten(1)
+        # === 维度变化说明 (mROPE / 3D-RoPE 索引过程) ===
+        # 假设变量定义:
+        # B: Batch Size (批大小)
+        # L: Sequence Length (当前 Batch 的 Token 总长度)
+        # D: Head Dimension (每个注意力头的维度)
+        # M: Precomputed Max Grid Size (预计算的最大位置矩阵长度)
+        
+        # 1. self.rotary_pos_emb(max_hw) -> freq_table
+        #    维度: [M, D]
+        #    说明: 这是一个预计算好的“位置百科全书”，每一行对应一个位置的旋转编码向量。
+        
+        # 2. freq_table[pos_ids]
+        #    输入 pos_ids 维度: [B, L]
+        #    索引后维度: [B, L, D]
+        #    说明: 根据 pos_ids 中的索引值，从“百科全书”中提取对应的向量。
+        #    此时，每一行(L)的每个 Token 都拿到了属于自己的维度为 D 的位置向量。
+        
+        # 3. .flatten(1)
+        #    操作: 从第 1 维开始展平，即合并 [L] 和 [D]
+        #    最终维度: [B, L * D]
+        #    说明: 将序列长度与特征维度压缩到同一轴，通常是为了与形状为 [B, L * D] 的 
+        #    Query (Q) 或 Key (K) 矩阵进行逐元素相乘 (Element-wise Product)。
+        # ===========================================
+        # === 矩阵数值演变实测 (以 B=1, L=2, D=3 为例) ===
+
+        # 1. freq_table (预计算的位置池)
+        # 形状: [M=5, D=3]
+        # freq_table = [
+        #     [0.1, 0.1, 0.1],  # Index 0
+        #     [0.2, 0.2, 0.2],  # Index 1
+        #     [0.3, 0.3, 0.3],  # Index 2
+        #     [0.4, 0.4, 0.4],  # Index 3
+        #     [0.5, 0.5, 0.5]   # Index 4
+        # ]
+        
+        # 2. pos_ids (你从 Pdb 看到的输入)
+        # 形状: [B=1, L=2]
+        # pos_ids = [[0, 4]]  # 假设第一个 Token 位置是 0，第二个是 4
+        
+        # 3. 索引操作: freq_table[pos_ids]
+        # 过程: 
+        # - 第一个位置取索引 0 的行 -> [0.1, 0.1, 0.1]
+        # - 第二个位置取索引 4 的行 -> [0.5, 0.5, 0.5]
+        # 结果形状: [B=1, L=2, D=3]
+        # 结果内容: [
+        #     [ [0.1, 0.1, 0.1], [0.5, 0.5, 0.5] ]
+        # ]
+        
+        # 4. 展平操作: .flatten(1)
+        # 过程: 保持第 0 维(Batch)，将剩下的 [L=2, D=3] 拍扁成 [2 * 3 = 6]
+        # 最终形状: [B=1, 6]
+        # 最终内容: [
+        #     [0.1, 0.1, 0.1, 0.5, 0.5, 0.5]
+        # ]
+        # 
+        # 逻辑总结：
+        # 这样处理后，位置向量就从“按 Token 分组”变成了“一整排特征”，
+        # 方便与同样展平后的 Query/Key 向量直接进行 * 乘法。
+        # ===========================================
+        
         return embeddings
 
     def fast_pos_embed_interpolate(self, grid_thw):
@@ -779,6 +864,7 @@ class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):
         Returns:
             `torch.Tensor`: hidden_states.
         """
+        # grid_thw = [[1, 86, 128]], grid_thw.shape = [1, 3]
         hidden_states = self.patch_embed(hidden_states)
 
         pos_embeds = self.fast_pos_embed_interpolate(grid_thw)
