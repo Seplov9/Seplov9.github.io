@@ -722,8 +722,10 @@ class Qwen3VLVisionModel(Qwen3VLPreTrainedModel):
         (Pdb) freq_table.shape
         torch.Size([128, 16])   
         '''
+        
         embeddings = freq_table[pos_ids]  # lookup rotary embeddings, [11008, 2] -> [11008, 2, 16]
-        embeddings = embeddings.flatten(1)
+        embeddings = embeddings.flatten(1)  # [11008, 32]
+        
         # === 维度变化说明 (mROPE / 3D-RoPE 索引过程) ===
         # 假设变量定义:
         # B: Batch Size (批大小)
@@ -994,10 +996,13 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
             position_ids=text_position_ids,
         )
 
-        hidden_states = inputs_embeds
+        hidden_states = inputs_embeds  # [1, 2766, 2048] <---> [bs, seqlen, hidden_size]
 
         # create position embeddings to be shared across the decoder layers
         '''
+        (Pdb) hidden_states.shape
+        torch.Size([1, 2766, 2048])
+        
         (Pdb) position_ids.shape
         torch.Size([3, 1, 2766]) <---> (3, bs, positions)
         (Pdb) position_ids
@@ -1055,6 +1060,7 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
         # H维度存储列，一共有43行，从4到67，重复43次
         # 也就是说，对于图片token，最后一个是[4, 46, 67]
         # 前4个token和后10个token为文字，三个维度值均为[0, 1, 2, 3], [68, 69, 70, 71, 72, 73, 74, 75, 76, 77]
+    
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         # decoder layers
