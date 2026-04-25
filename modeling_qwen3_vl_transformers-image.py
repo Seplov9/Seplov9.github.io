@@ -1798,7 +1798,25 @@ class Qwen3VLForConditionalGeneration(Qwen3VLPreTrainedModel, GenerationMixin):
 
         # Concatenate "text + vision" positions into [4, bs, seq-len]
         text_positions = text_positions[None, ...]
+        '''
+        (Pdb) text_positions.shape
+        torch.Size([1, 1, 2766])
+        (Pdb) text_positions
+        tensor([[[   0,    1,    2,  ..., 2763, 2764, 2765]]], device='cuda:0')
+        '''
         position_ids = torch.cat([text_positions, vision_positions], dim=0)
+        '''
+        (Pdb) position_ids.shape
+        torch.Size([4, 1, 2766])
+        (Pdb) position_ids
+        tensor([[[   0,    1,    2,  ..., 2763, 2764, 2765]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]],
+        
+                [[   0,    1,    2,  ...,   75,   76,   77]]], device='cuda:0')
+        '''
 
         return position_ids
 
