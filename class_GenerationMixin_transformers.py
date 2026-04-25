@@ -30,5 +30,6 @@ def prepare_inputs_for_generation()
         [[    0,     1,     2,  ...,  3637,  3638,  3639]],
 
         [[    0,     1,     2,  ...,  3637,  3638,  3639]]], device='cuda:0'),
+ # position_ids.shape = [4, 1, 13430]
  'use_cache': True,
  'video_grid_thw': tensor([[178,  12,  22]], device='cuda:0')}
