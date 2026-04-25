@@ -1220,7 +1220,14 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
         if video_grid_thw is not None:
             video_grid_thw = torch.repeat_interleave(video_grid_thw, video_grid_thw[:, 0], dim=0)
             video_grid_thw[:, 0] = 1
-        spatial_merge_size = self.config.vision_config.spatial_merge_size
+        spatial_merge_size = self.config.vision_config.spatial_merge_size  # 2
+
+        '''
+        (Pdb) input_ids.shape
+        torch.Size([1, 2766])
+        (Pdb) input_ids
+        tensor([[151644,    872,    198,  ..., 151644,  77091,    198]],   device='cuda:0')
+        '''
 
         mrope_position_deltas = []
         position_ids = torch.zeros(
@@ -1229,7 +1236,7 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
             input_ids.shape[1],
             dtype=input_ids.dtype,
             device=input_ids.device,
-        )
+        )  # [3, 1, 2766]
         grid_iters = {
             1: iter(image_grid_thw) if image_grid_thw is not None else None,
             2: iter(video_grid_thw) if video_grid_thw is not None else None,
@@ -1273,6 +1280,16 @@ class Qwen3VLModel(Qwen3VLPreTrainedModel):
                 position_ids[:, batch_idx] = llm_positions.to(position_ids.device)
             mrope_position_deltas.append(llm_positions.max() + 1 - len(current_input_ids))
         mrope_position_deltas = torch.tensor(mrope_position_deltas, device=input_ids.device).unsqueeze(1)
+        '''
+        (Pdb) position_ids
+        tensor([[[ 0,  1,  2,  ..., 75, 76, 77]],
+        
+                [[ 0,  1,  2,  ..., 75, 76, 77]],
+        
+                [[ 0,  1,  2,  ..., 75, 76, 77]]], device='cuda:0')
+        (Pdb) mrope_position_deltas
+        tensor([[-2688]], device='cuda:0')
+        '''
         return position_ids, mrope_position_deltas
 
     @can_return_tuple
@@ -1745,20 +1762,26 @@ class Qwen3VLForConditionalGeneration(Qwen3VLPreTrainedModel, GenerationMixin):
         # Overwritten -- requires 3D position ids
 
         text_positions = super()._prepare_position_ids_for_generation(inputs_tensor, model_kwargs)
+        '''
+        (Pdb) text_positions.shape
+        torch.Size([1, 2766])
+        (Pdb) text_positions
+        tensor([[   0,    1,    2,  ..., 2763, 2764, 2765]], device='cuda:0')
+        '''
 
         # Early exit in case we are continuing generation from past kv
         past_length = 0
-        if (cache := model_kwargs.get("past_key_values")) is not None:
+        if (cache := model_kwargs.get("past_key_values")) is not None:  # False
             past_length = cache.get_seq_length()
-        if past_length != 0 and self.model.rope_deltas is not None:
+        if past_length != 0 and self.model.rope_deltas is not None:  # False
             position_ids = text_positions[None, ...] + self.model.rope_deltas
             return position_ids
 
         # Otherwise compute 3d position ids for vision tokens and concat with text position ids
-        if "input_ids" in model_kwargs and model_kwargs["input_ids"].shape[1] > 0:
+        if "input_ids" in model_kwargs and model_kwargs["input_ids"].shape[1] > 0:  # False
             inputs_tensor = model_kwargs["input_ids"]
 
-        is_input_ids = len(inputs_tensor.shape) == 2 and inputs_tensor.dtype in [torch.int, torch.long]
+        is_input_ids = len(inputs_tensor.shape) == 2 and inputs_tensor.dtype in [torch.int, torch.long]  # True
         if (
             is_input_ids
             and model_kwargs.get("mm_token_type_ids") is not None
