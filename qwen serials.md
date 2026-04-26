@@ -2,7 +2,9 @@
 - transformers库  
 transformers/src/transformers/processing_utils.py(class ProcessorMixin(PushToHubMixin))  
 transformers/src/transformers/generation/utils.py(class GenerationMixin(ContinuousMixin))
-transformers/src/transformers/modeling_utils.py(class PreTrainedModel)  
+transformers/src/transformers/modeling_utils.py(class PreTrainedModel)
+transformers/tokenization_utils_base.py(class PreTrainedTokenizerBase)
+transformers/tokenization_utils_tokenizers.py(class TokenizersBackend)
 transformers/src/transformers/image_processing_utils.py  
 transformers/src/transformers/video_processing_utils.py
 transformers/src/transformers/modeling_rope_utils.py  
