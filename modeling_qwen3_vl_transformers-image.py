@@ -1053,9 +1053,9 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
         '''
         # image_grid_thw.shape: [1, 3]
         # image_grid_thw = [[1, 86, 128]]
-        # merger -> [43,64]
+        # merger -> [43, 64]
         # 从第5个开始是图片
-        # T维度共有43x64=2752个"4"
+        # T维度共有43x64 = 2752个"4"
         # W维度存储行，一共有64列，依次是64个4, 64个5, 64个6,..., 64个46
         # H维度存储列，一共有43行，从4到67，重复43次
         # 也就是说，对于图片token，最后一个是[4, 46, 67]
