@@ -1023,6 +1023,10 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
                 3623, 3624, 3625, 3626, 3627, 3628, 3629, 3619, 3620, 3621, 3622, 3623,
                 3624, 3625, 3626, 3627, 3628, 3629, 3630, 3631, 3632, 3633, 3634, 3635,
                 3636, 3637, 3638, 3639], device='cuda:0')
+        (Pdb) text[0][:100]
+        '<|im_start|>user\n<0.3 seconds><|vision_start|><|video_pad|><|video_pad|><|video_pad|><|video_pad|><|'
+        (Pdb) text[0][-100:]
+        'o_pad|><|video_pad|><|video_pad|><|vision_end|>Describe this video.<|im_end|>\n<|im_start|>assistant\n'
         '''
         # video_grid_thw.shape: [1, 3]
         # video_grid_thw = [[(178, 12, 22]]
