@@ -387,7 +387,7 @@ output_text = processor.batch_decode(
 print(output_text)
 ```
 
-### C
+### Video-1
 ```python
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
