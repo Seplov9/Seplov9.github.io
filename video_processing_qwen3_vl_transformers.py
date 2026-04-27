@@ -241,7 +241,7 @@ class Qwen3VLVideoProcessor(BaseVideoProcessor):
             batch_size, grid_t, channel = patches.shape[:3]
             grid_t = grid_t // temporal_patch_size
             grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
-            # (grid_t, grid_h, grid_w) = (178, 22, 12)
+            # (grid_t, grid_h, grid_w) = (178, 12, 22)
 
             patches = patches.view(
                 batch_size,
