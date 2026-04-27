@@ -571,6 +571,12 @@ modeling_qwen3_vl.py
         `def _preprocess()`  
         `return`
 
+    - transformers/models/qwen3_vl/processing_qwen3_vl.py
+      class Qwen3VLProcessor(ProcessorMixin)  
+      `def __call__()`  
+      `text[i] = text[i].replace("<|placeholder|>", self.image_token)`  
+      `text[i] = text[i].replace("<|placeholder|>", self.video_token)`
+
     - transformers/models/qwen3_vl/processing_qwen3_vl.py  
       class Qwen3VLProcessor(ProcessorMixin)  
       `def __call__()`  
