@@ -1059,7 +1059,7 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
         # W维度存储行，一共有64列，依次是64个4, 64个5, 64个6,..., 64个46
         # H维度存储列，一共有43行，从4到67，重复43次
         # 也就是说，对于图片token，最后一个是[4, 46, 67]
-        # 前4个token和后10个token为文字，三个维度值均为[0, 1, 2, 3], [68, 69, 70, 71, 72, 73, 74, 75, 76, 77]
+        # 前4个token和后10个token为文本，三个维度值均为[0, 1, 2, 3], [68, 69, 70, 71, 72, 73, 74, 75, 76, 77]
     
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
