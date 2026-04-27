@@ -1003,6 +1003,19 @@ class Qwen3VLTextModel(Qwen3VLPreTrainedModel):
     def _deepstack_process(
         self, hidden_states: torch.Tensor, visual_pos_masks: torch.Tensor, visual_embeds: torch.Tensor
     ):
+        '''
+        (Pdb) hidden_states.shape
+        torch.Size([1, 13430, 2048])
+        (Pdb) visual_pos_masks.shape
+        torch.Size([1, 13430])
+        (Pdb) visual_pos_masks[0].tolist().count(True)
+        11748
+        (Pdb) visual_pos_masks[0].tolist().count(False)
+        1682
+        (Pdb) visual_embeds.shape
+        torch.Size([11748, 2048])
+        '''
+        
         visual_pos_masks = visual_pos_masks.to(hidden_states.device)
         visual_embeds = visual_embeds.to(hidden_states.device, hidden_states.dtype)
         hidden_states = hidden_states.clone()
